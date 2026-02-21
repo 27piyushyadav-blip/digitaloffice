@@ -4,9 +4,14 @@ const getColumns = () => ({
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
-  password: text("password").notNull(),
+  password: text("password"),
   username: text("username").notNull().unique(),
   image: text("image"),
+  googleId: text("google_id").unique(),
+  isEmailVerified: boolean("is_email_verified").default(false).notNull(),
+  verificationToken: text("verification_token"),
+  verificationExpires: timestamp("verification_expires"),
+  refreshToken: text("refresh_token"),
   consent: boolean("consent").default(false).notNull(),
   isBlocked: boolean("is_blocked").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -20,4 +25,3 @@ export const client = pgTable("client", getColumns());
 export const expert = pgTable("expert", getColumns());
 export const organisation = pgTable("organisation", getColumns());
 export const admin = pgTable("admin", getColumns());
-// https://github.com/27piyushyadav-blip/digitaloffices2/tree/restructure
