@@ -1,6 +1,9 @@
 .idx
 .env
+.env.example
+package-lock.json
 .vscode
+.turbo
 
 dist
 node_modules

@@ -17,8 +17,18 @@ export class MailService {
   }
 
   async sendVerificationEmail(email: string, token: string, role: string) {
-    const appUrl = this.configService.getOrThrow<string>("APP_URL");
-    const url = `${appUrl}/auth/${role}/verify?token=${token}`;
+    let frontendUrl: string;
+    
+    if (role === 'client') {
+      frontendUrl = this.configService.getOrThrow<string>("CLIENT_FRONTEND_URL");
+    } else if (role === 'expert') {
+      frontendUrl = this.configService.getOrThrow<string>("EXPERT_FRONTEND_URL");
+    } else {
+      // Fallback for other roles (admin, organisation)
+      frontendUrl = this.configService.getOrThrow<string>("EXPERT_FRONTEND_URL");
+    }
+    
+    const url = `${frontendUrl}/auth/${role}/verify?token=${token}`;
 
     await this.transporter.sendMail({
       from: `"No Reply" <${this.configService.get<string>("GMAIL_USER")}>`,

@@ -8,7 +8,7 @@ import { RtStrategy } from "./strategies/rt.strategy";
 import { MailModule } from "@repo/mail";
 
 @Module({
-  imports: [JwtModule.register({}), MailModule],
+  imports: [JwtModule.register({}), MailModule.forRoot()],
   providers: [AuthService, GoogleStrategy, AtStrategy, RtStrategy],
   controllers: [AuthController],
 })
