@@ -23,7 +23,14 @@ export class MailService {
       frontendUrl = this.configService.getOrThrow<string>("CLIENT_FRONTEND_URL");
     } else if (role === 'expert') {
       frontendUrl = this.configService.getOrThrow<string>("EXPERT_FRONTEND_URL");
-    } else {
+    }
+    else if (role === 'organisation') {
+      frontendUrl = this.configService.getOrThrow<string>("ORGANISATION_FRONTEND_URL");
+    }
+    else if (role === 'admin') {
+      frontendUrl = this.configService.getOrThrow<string>("ADMIN_FRONTEND_URL");
+    }
+    else {
       // Fallback for other roles (admin, organisation)
       frontendUrl = this.configService.getOrThrow<string>("EXPERT_FRONTEND_URL");
     }

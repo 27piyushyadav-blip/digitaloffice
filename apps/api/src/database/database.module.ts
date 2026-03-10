@@ -1,6 +1,7 @@
 import { Module, Global } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createDb } from "@repo/database";
+import { DatabaseService } from "./database.service";
 
 @Global()
 @Module({
@@ -13,7 +14,8 @@ import { createDb } from "@repo/database";
       },
       inject: [ConfigService],
     },
+    DatabaseService,
   ],
-  exports: ["DB_CLIENT"],
+  exports: ["DB_CLIENT", DatabaseService],
 })
 export class DatabaseModule {}
