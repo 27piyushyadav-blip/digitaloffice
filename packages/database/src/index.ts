@@ -9,3 +9,4 @@ export * from "./schema/earnings";
 export * from "./schema/notifications";
 export * from "./schema/verification";
 export * from "./schema/admin-panel";
+export * from "./schema/chat";

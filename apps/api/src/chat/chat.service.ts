@@ -73,4 +73,43 @@ export class ChatService {
       ...messageData,
     };
   }
+
+  // Save message to database (for WebSocket)
+  async saveMessage(messageData: {
+    conversationId: string;
+    senderId: string;
+    senderType: string;
+    message: string;
+    recipientType: string;
+    recipientId: string;
+  }) {
+    // TODO: Implement actual database insert
+    const savedMessage = {
+      id: 'msg_' + Date.now(),
+      ...messageData,
+      timestamp: new Date(),
+      status: 'sent',
+    };
+    
+    return savedMessage;
+  }
+
+  // Get or create conversation
+  async getOrCreateConversation(participants: {
+    clientId: string;
+    expertId?: string;
+    organizationId?: string;
+    type: 'expert' | 'organization';
+  }) {
+    // TODO: Implement actual database logic
+    const conversationId = `conv_${participants.clientId}_${participants.expertId || participants.organizationId}_${Date.now()}`;
+    
+    return {
+      id: conversationId,
+      type: participants.type,
+      participants,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
 }

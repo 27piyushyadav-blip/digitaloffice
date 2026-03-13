@@ -11,11 +11,13 @@
     "@nestjs/core": "^11.1.14",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-fastify": "^11.1.14",
     "@nestjs/platform-express": "^11.1.14",
-    "@repo/mail": "workspace:*",
+    "@nestjs/platform-fastify": "^11.1.14",
+    "@nestjs/platform-socket.io": "^11.1.16",
+    "@nestjs/websockets": "^11.1.16",
     "@repo/contract": "workspace:*",
     "@repo/database": "workspace:*",
+    "@repo/mail": "workspace:*",
     "argon2": "^0.44.0",
     "drizzle-orm": "^0.45.1",
     "fastify": "^5.7.4",
@@ -24,6 +26,7 @@
     "nodemailer": "^8.0.1",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
+    "socket.io": "^4.8.3",
     "unique-names-generator": "^4.7.1"
   },
   "devDependencies": {

@@ -15,6 +15,13 @@
       "when": 1773143921878,
       "tag": "0001_pale_the_anarchist",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773404257406,
+      "tag": "0002_omniscient_gladiator",
+      "breakpoints": true
     }
   ]
 }

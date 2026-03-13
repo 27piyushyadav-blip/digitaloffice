@@ -42,4 +42,57 @@ export class ChatController {
   ) {
     return this.chatService.sendMessage(userId, conversationId, messageData);
   }
+
+  // Start expert conversation
+  @Post('/expert/start')
+  async startExpertConversation(
+    @GetCurrentUserId() userId: string,
+    @Body() data: { expertId: string; initialMessage?: string },
+  ) {
+    const conversation = await this.chatService.getOrCreateConversation({
+      clientId: userId,
+      expertId: data.expertId,
+      type: 'expert',
+    });
+
+    if (data.initialMessage) {
+      await this.chatService.saveMessage({
+        conversationId: conversation.id,
+        senderId: userId,
+        senderType: 'client',
+        message: data.initialMessage,
+        recipientType: 'expert',
+        recipientId: data.expertId,
+      });
+    }
+
+    return conversation;
+  }
+
+  // Start organization conversation
+  @Post('/organization/start')
+  async startOrganizationConversation(
+    @GetCurrentUserId() userId: string,
+    @Body() data: { organizationId: string; expertId?: string; initialMessage?: string },
+  ) {
+    const conversation = await this.chatService.getOrCreateConversation({
+      clientId: userId,
+      organizationId: data.organizationId,
+      expertId: data.expertId,
+      type: 'organization',
+    });
+
+    if (data.initialMessage) {
+      await this.chatService.saveMessage({
+        conversationId: conversation.id,
+        senderId: userId,
+        senderType: 'client',
+        message: data.initialMessage,
+        recipientType: 'organization',
+        recipientId: data.organizationId,
+      });
+    }
+
+    return conversation;
+  }
 }
