@@ -5,76 +5,45 @@ import { DatabaseService } from '../database/database.service';
 export class ChatService {
   constructor(private readonly databaseService: DatabaseService) {}
 
-  // Get conversations
-  async getConversations(userId: string) {
-    // TODO: Implement actual database query
-    return {
-      conversations: [
-        {
-          id: 'conv_1',
-          expertId: 'exp_1',
-          expertName: 'Dr. John Smith',
-          expertAvatar: '/avatars/expert1.jpg',
-          lastMessage: 'Thank you for the consultation',
-          lastMessageTime: new Date(),
-          unreadCount: 2,
-        },
-        {
-          id: 'conv_2',
-          expertId: 'exp_2',
-          expertName: 'Dr. Sarah Johnson',
-          expertAvatar: '/avatars/expert2.jpg',
-          lastMessage: 'See you next week',
-          lastMessageTime: new Date(),
-          unreadCount: 0,
-        },
-      ],
-    };
+  // Get conversations for a user (client or expert)
+  async getConversations(userId: string, userType: string = 'client') {
+    const validType = (userType === 'expert' ? 'expert' : 'client') as 'client' | 'expert';
+    const convos = await this.databaseService.findConversationsByUserId(userId, validType);
+    return { conversations: convos };
   }
 
-  // Get messages
+  // Get messages for a conversation
   async getMessages(userId: string, conversationId: string, page: number, limit: number) {
-    // TODO: Implement actual database query
-    return {
-      messages: [
-        {
-          id: 'msg_1',
-          conversationId,
-          senderId: 'exp_1',
-          senderType: 'expert',
-          message: 'Hello! How can I help you today?',
-          timestamp: new Date(),
-        },
-        {
-          id: 'msg_2',
-          conversationId,
-          senderId: userId,
-          senderType: 'client',
-          message: 'I need help with anxiety issues',
-          timestamp: new Date(),
-        },
-      ],
-      pagination: {
-        page,
-        limit,
-        total: 2,
-        totalPages: 1,
-      },
-    };
+    return await this.databaseService.findMessagesByConversationId(conversationId, page, limit);
   }
 
-  // Send message
+  // Send message via REST API
   async sendMessage(userId: string, conversationId: string, messageData: any) {
-    // TODO: Implement actual database insert and real-time notification
-    return {
-      message: 'Message sent successfully',
-      messageId: 'msg_' + Date.now(),
+    // Determine sender/recipient types from the conversation
+    const convo = await this.databaseService.findOrCreateConversation({
+      clientId: messageData.clientId || userId,
+      expertId: messageData.expertId || messageData.recipientId,
+      type: 'expert',
+    });
+
+    const senderType = messageData.senderType || 'client';
+    const recipientType = senderType === 'client' ? 'expert' : 'client';
+    const recipientId = senderType === 'client' ? convo.expertId : convo.clientId;
+
+    const savedMessage = await this.databaseService.createMessage({
       conversationId,
-      ...messageData,
-    };
+      senderId: userId,
+      senderType,
+      content: messageData.message || messageData.content,
+      recipientId,
+      recipientType,
+      messageType: messageData.contentType || 'text',
+    });
+
+    return savedMessage;
   }
 
-  // Save message to database (for WebSocket)
+  // Save message to database (for WebSocket path)
   async saveMessage(messageData: {
     conversationId: string;
     senderId: string;
@@ -82,15 +51,18 @@ export class ChatService {
     message: string;
     recipientType: string;
     recipientId: string;
+    contentType?: string;
   }) {
-    // TODO: Implement actual database insert
-    const savedMessage = {
-      id: 'msg_' + Date.now(),
-      ...messageData,
-      timestamp: new Date(),
-      status: 'sent',
-    };
-    
+    const savedMessage = await this.databaseService.createMessage({
+      conversationId: messageData.conversationId,
+      senderId: messageData.senderId,
+      senderType: messageData.senderType,
+      content: messageData.message,
+      recipientId: messageData.recipientId,
+      recipientType: messageData.recipientType,
+      messageType: messageData.contentType || 'text',
+    });
+
     return savedMessage;
   }
 
@@ -101,15 +73,27 @@ export class ChatService {
     organizationId?: string;
     type: 'expert' | 'organization';
   }) {
-    // TODO: Implement actual database logic
-    const conversationId = `conv_${participants.clientId}_${participants.expertId || participants.organizationId}_${Date.now()}`;
-    
-    return {
-      id: conversationId,
+    const convo = await this.databaseService.findOrCreateConversation({
+      clientId: participants.clientId,
+      expertId: participants.expertId,
       type: participants.type,
-      participants,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    });
+
+    return {
+      id: convo.id,
+      _id: convo.id,
+      type: convo.type,
+      clientId: convo.clientId,
+      expertId: convo.expertId,
+      status: convo.status,
+      createdAt: convo.createdAt,
+      updatedAt: convo.updatedAt,
     };
+  }
+
+  // Mark messages as read
+  async markAsRead(conversationId: string, userId: string, userType: string) {
+    await this.databaseService.markMessagesAsRead(conversationId, userId, userType);
+    return { success: true };
   }
 }

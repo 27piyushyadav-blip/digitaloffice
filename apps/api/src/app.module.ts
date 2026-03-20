@@ -19,6 +19,7 @@ import { ReviewsModule } from "./reviews/reviews.module";
 import { ChatModule } from "./chat/chat.module";
 import { OrganizationPanelModule } from "./organization-panel/organization-panel.module";
 import { AdminPanelModule } from "./admin-panel/admin-panel.module";
+import { DirectoryModule } from "./directory/directory.module";
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { AdminPanelModule } from "./admin-panel/admin-panel.module";
     ChatModule,
     OrganizationPanelModule,
     AdminPanelModule,
+    DirectoryModule,
   ],
   providers: [
     {

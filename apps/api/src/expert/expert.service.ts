@@ -6,36 +6,171 @@ export class ExpertService {
   constructor(private readonly databaseService: DatabaseService) {}
 
   async getProfile(expertId: string) {
-    // TODO: Implement database query to get expert profile
+    const expertData = await this.databaseService.findExpertById(expertId);
+    
+    if (!expertData) {
+      throw new BadRequestException('Expert not found');
+    }
+
+    const toFullUrl = (url: string | null) => {
+      if (!url) return null;
+      if (url.startsWith('http')) return url;
+      return `http://localhost:3000${url}`;
+    };
+
+    const changes = await this.databaseService.findLatestProfileChanges(expertId);
+    const fieldStatuses: Record<string, { value: any; status: string }> = {};
+    if (changes) {
+      for (const change of changes) {
+        // change.field is 'Gender', 'Location', etc. from the audit log
+        const fieldKey = change.field.toLowerCase();
+        if (!fieldStatuses[fieldKey]) {
+          fieldStatuses[fieldKey] = {
+            value: change.newValue,
+            status: change.status,
+          };
+        }
+      }
+    }
+
     return {
-      id: expertId,
-      bio: '10 years experience',
-      experience: 10,
-      specialization: 'Corporate Tax',
-      consultationFee: 2000,
-      languages: ['English', 'Hindi'],
-      profileImage: null,
-      introVideo: null,
-      verificationStatus: 'PENDING_INITIAL',
-      hasPendingUpdates: false,
+      id: expertData.id,
+      name: expertData.name,
+      email: expertData.email,
+      username: expertData.username,
+      image: expertData.image,
+      bio: expertData.profile?.bio || null,
+      experience: expertData.profile?.experience || 0,
+      specialization: expertData.profile?.specialization || null,
+      consultationFee: expertData.profile?.consultationFee || null,
+      languages: expertData.profile?.languages || [],
+      education: expertData.profile?.education || [],
+      latestEducation: expertData.profile?.latestEducation || null,
+      profileImage: toFullUrl(expertData.profile?.profileImage || null),
+      introVideo: toFullUrl(expertData.profile?.introVideo || null),
+      verificationStatus: expertData.profile?.verificationStatus || 'ONBOARDING',
+      rejectionReason: expertData.profile?.rejectionReason || null,
+      hasPendingUpdates: expertData.profile?.hasPendingUpdates || false,
+      isVerified: expertData.profile?.isVerified || false,
+      createdAt: expertData.profile?.createdAt || null,
+      updatedAt: expertData.profile?.updatedAt || null,
+      // Additional fields
+      timezone: expertData.profile?.timezone || null,
+      gender: expertData.profile?.gender || null,
+      location: expertData.profile?.location || null,
+      socialLinks: expertData.profile?.socialLinks || {},
+      tags: expertData.profile?.tags || [],
+      workHistory: expertData.profile?.workHistory || [],
+      services: expertData.profile?.services || [],
+      documents: expertData.profile?.documents || [],
+      availability: expertData.profile?.availability || [],
+      leaves: expertData.profile?.leaves || [],
+      fieldStatuses,
     };
   }
 
   async updateProfile(expertId: string, updateData: any) {
-    // TODO: Update expert profile and send to admin approval queue
-    const { bio, experience, specialization, consultationFee, languages } = updateData;
+    const { 
+      bio, 
+      experience, 
+      specialization, 
+      consultationFee, 
+      languages, 
+      education, 
+      latestEducation,
+      timezone,
+      gender,
+      location,
+      socialLinks,
+      tags,
+      workHistory,
+      services,
+      documents,
+      availability,
+      leaves
+    } = updateData;
 
-    // Validate required fields
-    if (!bio || !experience || !specialization || !consultationFee) {
-      throw new BadRequestException('Missing required fields');
+    // Get existing profile to track changes
+    const existingProfile = await this.databaseService.findExpertById(expertId);
+    const currentProfileData = existingProfile.profile || {};
+
+    // Track changes for admin review
+    const changes = [];
+    
+    // Check each field for changes and create audit entries
+    // Fetch existing pending changes to avoid recreating unchanged pending requests
+    const latestChanges = await this.databaseService.findLatestProfileChanges(expertId);
+    const pendingValues: Record<string, any> = {};
+    if (latestChanges) {
+      for (const change of latestChanges) {
+        if (change.status === 'pending') {
+          const fieldKey = change.field.toLowerCase();
+          if (!pendingValues[fieldKey]) {
+            pendingValues[fieldKey] = change.newValue;
+          }
+        }
+      }
     }
 
-    // TODO: Save to database with pending status
-    // TODO: Create admin approval request
+    const fieldMappings: Record<string, string> = {
+      bio: 'Bio',
+      gender: 'Gender', 
+      location: 'Location',
+      timezone: 'Timezone',
+      specialization: 'Specialization'
+    };
+
+    for (const [field, displayName] of Object.entries(fieldMappings)) {
+      const dbValue = currentProfileData[field];
+      const newValue = updateData[field];
+      
+      const effectiveValue = pendingValues[field] !== undefined ? pendingValues[field] : (dbValue || null);
+      
+      if (effectiveValue !== newValue && newValue !== undefined) {
+        changes.push({
+          entityType: 'expert_profile',
+          entityId: expertId,
+          field: displayName,
+          oldValue: dbValue || null,
+          newValue: newValue,
+          status: 'pending'
+        });
+      }
+    }
+
+    // Create audit trail entries if there are changes
+    if (changes.length > 0) {
+      for (const change of changes) {
+        await this.databaseService.createProfileChange(change);
+      }
+    }
+
+    // Update profile in database
+    const updatedProfile = await this.databaseService.updateExpertProfile(expertId, {
+      bio,
+      experience: experience ? parseInt(experience) : undefined,
+      specialization,
+      consultationFee: consultationFee ? parseFloat(consultationFee) : undefined,
+      languages: languages || [],
+      education: education || [],
+      latestEducation: latestEducation || null,
+      timezone,
+      gender,
+      location,
+      socialLinks: socialLinks || {},
+      tags: tags || [],
+      workHistory: workHistory || [],
+      services: services || [],
+      documents: documents || [],
+      availability: availability || [],
+      leaves: leaves || [],
+    });
 
     return {
       message: 'Profile update submitted for admin approval',
       status: 'PENDING_APPROVAL',
+      profile: updatedProfile,
+      changes: changes.length
     };
   }
 
@@ -44,10 +179,12 @@ export class ExpertService {
       throw new BadRequestException('No file uploaded');
     }
 
-    const fileUrl = `/uploads/profile-images/${file.filename}`;
+    const fileUrl = `http://localhost:3000/uploads/profile-images/${file.filename}`;
     
-    // TODO: Save file URL to database
-    // TODO: Send to admin approval queue
+    // Update profile image in database
+    await this.databaseService.updateExpertProfile(expertId, {
+      profileImage: fileUrl,
+    });
 
     return {
       message: 'Profile image uploaded successfully',
@@ -61,10 +198,12 @@ export class ExpertService {
       throw new BadRequestException('No file uploaded');
     }
 
-    const fileUrl = `/uploads/intro-videos/${file.filename}`;
+    const fileUrl = `http://localhost:3000/uploads/intro-videos/${file.filename}`;
     
-    // TODO: Save file URL to database
-    // TODO: Send to admin approval queue
+    // Update intro video in database
+    await this.databaseService.updateExpertProfile(expertId, {
+      introVideo: fileUrl,
+    });
 
     return {
       message: 'Intro video uploaded successfully',
@@ -73,18 +212,63 @@ export class ExpertService {
     };
   }
 
-  async getDashboard(expertId: string) {
-    // TODO: Implement dashboard metrics calculation
+  async uploadDocument(expertId: string, file: Express.Multer.File, title: string, category: string) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    if (!title || !category) {
+      throw new BadRequestException('Title and category are required');
+    }
+
+    const fileUrl = `http://localhost:3000/uploads/verification-documents/${file.filename}`;
+    
+    // Get existing documents
+    const expertData = await this.databaseService.findExpertById(expertId);
+    const existingDocuments = expertData.profile?.documents || [];
+    
+    // Add new document
+    const newDocument = {
+      title,
+      category,
+      url: fileUrl,
+      fileType: file.mimetype,
+      fileSize: `${Math.round(file.size / 1024)}KB`
+    };
+
+    const updatedDocuments = [...existingDocuments, newDocument];
+    
+    // Update documents in database
+    await this.databaseService.updateExpertProfile(expertId, {
+      documents: updatedDocuments,
+    });
+
     return {
-      todayBookings: 5,
-      upcomingBookings: 12,
-      completedSessions: 200,
-      earningsThisMonth: 12000,
-      status: 'LIVE',
-      onboarding: null,
-      rejectionReason: null,
+      message: 'Document uploaded successfully',
+      document: newDocument,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  async getDashboard(expertId: string) {
+    const expertData = await this.databaseService.findExpertById(expertId);
+    
+    if (!expertData) {
+      throw new BadRequestException('Expert not found');
+    }
+
+    // TODO: Implement actual dashboard metrics from bookings, sessions, and earnings tables
+    // For now, return basic profile status
+    return {
+      todayBookings: 0, // TODO: Query bookings table for today's bookings
+      upcomingBookings: 0, // TODO: Query bookings table for upcoming bookings
+      completedSessions: 0, // TODO: Query sessions table for completed sessions
+      earningsThisMonth: 0, // TODO: Query earnings table for this month's earnings
+      status: expertData.profile?.verificationStatus || 'ONBOARDING',
+      onboarding: expertData.profile?.verificationStatus === 'ONBOARDING',
+      rejectionReason: expertData.profile?.rejectionReason || null,
       profile: {
-        hasPendingUpdates: false,
+        hasPendingUpdates: expertData.profile?.hasPendingUpdates || false,
       },
     };
   }

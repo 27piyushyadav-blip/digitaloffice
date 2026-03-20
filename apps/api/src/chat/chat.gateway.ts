@@ -9,9 +9,10 @@ import {
   OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger, UseGuards } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ChatService } from './chat.service';
-import { AtGuard } from '../auth/guards/at.guard';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -32,7 +33,11 @@ export class ChatGateway
   @WebSocketServer() server: Server;
   private logger: Logger = new Logger('ChatGateway');
 
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   afterInit(server: Server) {
     this.logger.log('WebSocket Gateway initialized');
@@ -41,12 +46,9 @@ export class ChatGateway
   async handleConnection(client: AuthenticatedSocket) {
     this.logger.log(`Client connected: ${client.id}`);
     
-    // Extract user info from token (you'll need to implement token validation)
     const token = client.handshake.auth.token;
     if (token) {
       try {
-        // TODO: Validate JWT token and extract user info
-        // For now, we'll mock the user info
         const userInfo = await this.validateToken(token);
         client.userId = userInfo.userId;
         client.userType = userInfo.userType;
@@ -54,11 +56,6 @@ export class ChatGateway
         
         // Join user to their personal room
         client.join(`user_${client.userId}`);
-        
-        // Join organization room if applicable
-        if (client.userType === 'organization' && client.organizationId) {
-          client.join(`org_${client.organizationId}`);
-        }
         
         this.logger.log(`User ${client.userId} (${client.userType}) authenticated`);
       } catch (error) {
@@ -75,84 +72,84 @@ export class ChatGateway
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
-  @SubscribeMessage('join-expert-chat')
-  async handleJoinExpertChat(
-    @MessageBody() data: { expertId: string },
+  @SubscribeMessage('join-conversation')
+  async handleJoinConversation(
+    @MessageBody() data: { conversationId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    if (client.userType !== 'client') {
-      client.emit('error', { message: 'Only clients can join expert chats' });
-      return;
+    const roomName = `conversation_${data.conversationId}`;
+    client.join(roomName);
+
+    // Mark messages as read when joining
+    if (client.userId && client.userType) {
+      await this.chatService.markAsRead(data.conversationId, client.userId, client.userType);
+      
+      // Notify the other user that messages have been read
+      this.server.to(roomName).emit('messages-read', {
+        conversationId: data.conversationId,
+        readByUserId: client.userId,
+      });
     }
 
-    const roomName = `expert_${data.expertId}`;
-    client.join(roomName);
-    
-    // Notify expert that client joined
-    this.server.to(`user_${data.expertId}`).emit('client-joined', {
-      clientId: client.userId,
-      roomName,
-    });
-
-    client.emit('joined-chat', { roomName, type: 'expert' });
+    client.emit('joined-conversation', { conversationId: data.conversationId, roomName });
   }
 
-  @SubscribeMessage('join-organization-chat')
-  async handleJoinOrganizationChat(
-    @MessageBody() data: { organizationId: string; expertId?: string },
+  @SubscribeMessage('leave-conversation')
+  async handleLeaveConversation(
+    @MessageBody() data: { conversationId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    if (client.userType !== 'client') {
-      client.emit('error', { message: 'Only clients can join organization chats' });
-      return;
+    client.leave(`conversation_${data.conversationId}`);
+  }
+
+  @SubscribeMessage('fetch-messages')
+  async handleFetchMessages(
+    @MessageBody() data: { conversationId: string; page?: number; limit?: number },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    try {
+      const result = await this.chatService.getMessages(
+        client.userId,
+        data.conversationId,
+        data.page || 1,
+        data.limit || 50,
+      );
+      client.emit('messages-loaded', result);
+    } catch (error) {
+      client.emit('error', { message: 'Failed to fetch messages' });
     }
-
-    const roomName = `org_${data.organizationId}`;
-    client.join(roomName);
-    
-    // Notify organization members
-    this.server.to(`org_${data.organizationId}`).emit('client-joined', {
-      clientId: client.userId,
-      expertId: data.expertId,
-      roomName,
-    });
-
-    client.emit('joined-chat', { roomName, type: 'organization' });
   }
 
   @SubscribeMessage('send-message')
   async handleSendMessage(
     @MessageBody() data: {
       conversationId: string;
-      message: string;
-      recipientType: 'expert' | 'organization';
+      content: string;
+      contentType?: string;
       recipientId: string;
     },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     try {
-      // Save message to database
+      const recipientType = client.userType === 'client' ? 'expert' : 'client';
+      
       const savedMessage = await this.chatService.saveMessage({
         conversationId: data.conversationId,
         senderId: client.userId,
         senderType: client.userType,
-        message: data.message,
-        recipientType: data.recipientType,
+        message: data.content,
+        recipientType,
         recipientId: data.recipientId,
+        contentType: data.contentType || 'text',
       });
 
-      // Determine target room
-      let targetRoom: string;
-      if (data.recipientType === 'expert') {
-        targetRoom = `user_${data.recipientId}`;
-      } else {
-        targetRoom = `org_${data.recipientId}`;
-      }
+      // Emit to the conversation room (both sender & recipient if they're in the room)
+      this.server.to(`conversation_${data.conversationId}`).emit('new-message', savedMessage);
 
-      // Send message to recipient
-      this.server.to(targetRoom).emit('new-message', savedMessage);
+      // Also emit to the recipient's personal room (for sidebar updates even if not in the conversation room)
+      this.server.to(`user_${data.recipientId}`).emit('new-message', savedMessage);
 
-      // Send confirmation to sender
+      // Emit confirmation to sender (in case they're not in the conversation room yet)
       client.emit('message-sent', savedMessage);
 
     } catch (error) {
@@ -163,42 +160,41 @@ export class ChatGateway
 
   @SubscribeMessage('typing-start')
   async handleTypingStart(
-    @MessageBody() data: { conversationId: string; recipientType: string; recipientId: string },
+    @MessageBody() data: { conversationId: string; recipientId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    let targetRoom: string;
-    if (data.recipientType === 'expert') {
-      targetRoom = `user_${data.recipientId}`;
-    } else {
-      targetRoom = `org_${data.recipientId}`;
-    }
-
-    this.server.to(targetRoom).emit('user-typing', {
+    this.server.to(`user_${data.recipientId}`).emit('user-typing', {
       conversationId: data.conversationId,
-      userId: client.userId,
-      userType: client.userType,
+      typerId: client.userId,
       isTyping: true,
     });
   }
 
   @SubscribeMessage('typing-stop')
   async handleTypingStop(
-    @MessageBody() data: { conversationId: string; recipientType: string; recipientId: string },
+    @MessageBody() data: { conversationId: string; recipientId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    let targetRoom: string;
-    if (data.recipientType === 'expert') {
-      targetRoom = `user_${data.recipientId}`;
-    } else {
-      targetRoom = `org_${data.recipientId}`;
-    }
-
-    this.server.to(targetRoom).emit('user-typing', {
+    this.server.to(`user_${data.recipientId}`).emit('user-typing', {
       conversationId: data.conversationId,
-      userId: client.userId,
-      userType: client.userType,
+      typerId: client.userId,
       isTyping: false,
     });
+  }
+
+  @SubscribeMessage('mark-read')
+  async handleMarkRead(
+    @MessageBody() data: { conversationId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (client.userId && client.userType) {
+      await this.chatService.markAsRead(data.conversationId, client.userId, client.userType);
+      
+      this.server.to(`conversation_${data.conversationId}`).emit('messages-read', {
+        conversationId: data.conversationId,
+        readByUserId: client.userId,
+      });
+    }
   }
 
   private async validateToken(token: string): Promise<{
@@ -206,12 +202,13 @@ export class ChatGateway
     userType: 'client' | 'expert' | 'organization';
     organizationId?: string;
   }> {
-    // TODO: Implement actual JWT validation
-    // For now, return mock data
+    const secret = this.configService.get<string>('JWT_ACCESS_SECRET');
+    const payload: any = this.jwtService.verify(token, { secret });
+    
     return {
-      userId: 'mock_user_id',
-      userType: 'client',
-      organizationId: undefined,
+      userId: payload.sub,
+      userType: payload.role || 'client',
+      organizationId: payload.organizationId,
     };
   }
 }

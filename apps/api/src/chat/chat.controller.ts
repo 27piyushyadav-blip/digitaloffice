@@ -16,10 +16,13 @@ import { GetCurrentUserId } from '../common/decorators';
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
-  // Get conversations
+  // Get conversations — pass userType from query param
   @Get('/conversations')
-  async getConversations(@GetCurrentUserId() userId: string) {
-    return this.chatService.getConversations(userId);
+  async getConversations(
+    @GetCurrentUserId() userId: string,
+    @Query('userType') userType: string = 'client',
+  ) {
+    return this.chatService.getConversations(userId, userType);
   }
 
   // Get messages
@@ -57,7 +60,7 @@ export class ChatController {
 
     if (data.initialMessage) {
       await this.chatService.saveMessage({
-        conversationId: conversation.id,
+        conversationId: conversation.id || conversation._id,
         senderId: userId,
         senderType: 'client',
         message: data.initialMessage,
@@ -69,30 +72,13 @@ export class ChatController {
     return conversation;
   }
 
-  // Start organization conversation
-  @Post('/organization/start')
-  async startOrganizationConversation(
+  // Mark messages as read
+  @Post('/:conversationId/read')
+  async markAsRead(
     @GetCurrentUserId() userId: string,
-    @Body() data: { organizationId: string; expertId?: string; initialMessage?: string },
+    @Param('conversationId') conversationId: string,
+    @Body() data: { userType?: string },
   ) {
-    const conversation = await this.chatService.getOrCreateConversation({
-      clientId: userId,
-      organizationId: data.organizationId,
-      expertId: data.expertId,
-      type: 'organization',
-    });
-
-    if (data.initialMessage) {
-      await this.chatService.saveMessage({
-        conversationId: conversation.id,
-        senderId: userId,
-        senderType: 'client',
-        message: data.initialMessage,
-        recipientType: 'organization',
-        recipientId: data.organizationId,
-      });
-    }
-
-    return conversation;
+    return this.chatService.markAsRead(conversationId, userId, data.userType || 'client');
   }
 }

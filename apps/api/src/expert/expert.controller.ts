@@ -96,6 +96,47 @@ export class ExpertController {
     return this.expertService.uploadIntroVideo(expertId, file);
   }
 
+  @Post('profile/documents')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/verification-documents',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        // Allow common document and image types
+        const allowedTypes = [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'image/jpeg',
+          'image/png',
+          'image/jpg'
+        ];
+        if (!allowedTypes.includes(file.mimetype)) {
+          return cb(new BadRequestException('Only PDF, Word, and image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB
+      },
+    }),
+  )
+  async uploadDocument(
+    @GetCurrentUserId() expertId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { title: string; category: string },
+  ) {
+    return this.expertService.uploadDocument(expertId, file, body.title, body.category);
+  }
+
   @Get('dashboard')
   async getDashboard(@GetCurrentUserId() expertId: string) {
     return this.expertService.getDashboard(expertId);
