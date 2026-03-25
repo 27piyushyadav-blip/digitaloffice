@@ -22,6 +22,20 @@
       "when": 1773404257406,
       "tag": "0002_omniscient_gladiator",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1773741030855,
+      "tag": "0003_graceful_triton",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774420489112,
+      "tag": "0004_polite_jubilee",
+      "breakpoints": true
     }
   ]
 }

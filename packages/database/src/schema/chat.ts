@@ -24,7 +24,7 @@ export const conversations = pgTable('conversations', {
 export const messages = pgTable('messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversationId: uuid('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
-  senderId: uuid('sender_id').notNull().references(() => client.id, { onDelete: 'cascade' }),
+  senderId: uuid('sender_id').notNull(), // Remove reference to allow both client and expert
   senderType: varchar('sender_type', { enum: ['client', 'expert', 'organization'] }).notNull(),
   recipientId: uuid('recipient_id').notNull(),
   recipientType: varchar('recipient_type', { enum: ['client', 'expert', 'organization'] }).notNull(),
@@ -65,7 +65,7 @@ export const conversationParticipants = pgTable('conversation_participants', {
 export const typingIndicators = pgTable('typing_indicators', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversationId: uuid('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id').notNull().references(() => client.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull(), // Remove reference to allow all user types
   userType: varchar('user_type', { enum: ['client', 'expert', 'organization'] }).notNull(),
   isTyping: boolean('is_typing').default(true).notNull(),
   startedAt: timestamp('started_at').defaultNow().notNull(),

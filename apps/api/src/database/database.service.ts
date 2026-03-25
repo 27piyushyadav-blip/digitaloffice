@@ -291,6 +291,8 @@ export class DatabaseService {
         _id: convo.id,
         type: convo.type,
         status: convo.status,
+        clientId: convo.clientId, // Add clientId for client users
+        expertId: convo.expertId, // Add expertId for completeness
         otherUser: otherUser ? {
           _id: otherUser.id,
           name: otherUser.name,
@@ -340,6 +342,8 @@ export class DatabaseService {
         readBy: m.isRead ? [m.senderId, m.recipientId] : [m.senderId],
         status: 'sent',
         isDeleted: m.isDeleted,
+        recipientId: m.recipientId,
+        senderType: m.senderType,
       })),
       pagination: {
         page,
@@ -389,6 +393,8 @@ export class DatabaseService {
       readBy: [newMsg.senderId],
       status: 'sent',
       isDeleted: false,
+      recipientId: newMsg.recipientId,
+      senderType: newMsg.senderType,
     };
   }
 
@@ -428,9 +434,10 @@ export class DatabaseService {
     // Mark all messages in this conversation that were NOT sent by this user as read
     const senderTypeToMark = userType === 'client' ? 'expert' : 'client';
     
-    await this.db
-      .update(messages)
-      .set({ isRead: true, readAt: new Date() })
+    // Get messages to update
+    const messagesToUpdate = await this.db
+      .select()
+      .from(messages)
       .where(
         and(
           eq(messages.conversationId, conversationId),
@@ -438,5 +445,20 @@ export class DatabaseService {
           eq(messages.isRead, false),
         )
       );
+
+    // Update each message to add the reader to readBy array
+    for (const message of messagesToUpdate) {
+      const currentReadBy = message.readBy || [];
+      if (!currentReadBy.includes(userId)) {
+        await this.db
+          .update(messages)
+          .set({ 
+            isRead: true, 
+            readAt: new Date(),
+            readBy: [...currentReadBy, userId]
+          })
+          .where(eq(messages.id, message.id));
+      }
+    }
   }
 }

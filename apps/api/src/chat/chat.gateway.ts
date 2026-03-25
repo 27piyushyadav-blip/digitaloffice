@@ -22,7 +22,7 @@ interface AuthenticatedSocket extends Socket {
 
 @WebSocketGateway({
   cors: {
-    origin: ['http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:3004'],
+    origin: ['http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:3004', 'http://localhost:3000'],
     credentials: true,
   },
   namespace: '/chat',
@@ -126,31 +126,39 @@ export class ChatGateway
       conversationId: string;
       content: string;
       contentType?: string;
-      recipientId: string;
+      recipientId?: string;
     },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     try {
-      const recipientType = client.userType === 'client' ? 'expert' : 'client';
+      this.logger.log(`🔥 Received message from ${client.userId} (${client.userType}): ${data.content}`);
+      this.logger.log(`🔥 Conversation: ${data.conversationId}, Recipient: ${data.recipientId}`);
       
+      // Determine recipient type (opposite of sender)
+      const recipientType = client.userType === 'client' ? 'expert' : 'client';
+      const recipientId = data.recipientId;
+      
+      this.logger.log(`🔥 Sending to recipient: ${recipientId} (${recipientType})`);
+
       const savedMessage = await this.chatService.saveMessage({
         conversationId: data.conversationId,
         senderId: client.userId,
         senderType: client.userType,
         message: data.content,
         recipientType,
-        recipientId: data.recipientId,
+        recipientId,
         contentType: data.contentType || 'text',
       });
 
-      // Emit to the conversation room (both sender & recipient if they're in the room)
-      this.server.to(`conversation_${data.conversationId}`).emit('new-message', savedMessage);
+      this.logger.log(`🔥 Message saved: ${JSON.stringify(savedMessage)}`);
 
-      // Also emit to the recipient's personal room (for sidebar updates even if not in the conversation room)
-      this.server.to(`user_${data.recipientId}`).emit('new-message', savedMessage);
-
-      // Emit confirmation to sender (in case they're not in the conversation room yet)
+      // Emit to the conversation room (excluding sender to prevent echo)
+      this.server.to(`conversation_${data.conversationId}`).except(client.id).emit('new-message', savedMessage);
+      
+      // Emit confirmation to sender with status update
       client.emit('message-sent', savedMessage);
+
+      this.logger.log(`🔥 Message emitted to conversation room and sender`);
 
     } catch (error) {
       this.logger.error(`Error sending message: ${error.message}`);
@@ -202,13 +210,18 @@ export class ChatGateway
     userType: 'client' | 'expert' | 'organization';
     organizationId?: string;
   }> {
-    const secret = this.configService.get<string>('JWT_ACCESS_SECRET');
-    const payload: any = this.jwtService.verify(token, { secret });
-    
-    return {
-      userId: payload.sub,
-      userType: payload.role || 'client',
-      organizationId: payload.organizationId,
-    };
+    try {
+      const secret = this.configService.get<string>('JWT_ACCESS_SECRET');
+      const payload: any = this.jwtService.verify(token, { secret });
+      
+      return {
+        userId: payload.sub || payload.userId,
+        userType: payload.role || payload.userType || 'client',
+        organizationId: payload.organizationId,
+      };
+    } catch (error) {
+      this.logger.error(`Token validation failed: ${error.message}`);
+      throw error;
+    }
   }
 }

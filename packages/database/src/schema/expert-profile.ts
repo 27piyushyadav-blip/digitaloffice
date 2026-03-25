@@ -25,6 +25,44 @@ export const expertProfile = pgTable("expert_profile", {
   verifiedAt: timestamp("verified_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
+  
+  // Additional profile fields
+  timezone: text("timezone"),
+  gender: text("gender"),
+  location: text("location"),
+  socialLinks: json("social_links").$type<Record<string, string>>(),
+  tags: json("tags").$type<string[]>(),
+  workHistory: json("work_history").$type<Array<{
+    company: string;
+    position: string;
+    startDate: string;
+    endDate: string;
+  }>>(),
+  services: json("services").$type<Array<{
+    name: string;
+    duration: number;
+    videoPrice: number;
+    clinicPrice: number;
+    currency: string;
+    description: string;
+  }>>(),
+  documents: json("documents").$type<Array<{
+    title: string;
+    category: string;
+    url: string;
+    fileType?: string;
+    fileSize?: string;
+  }>>(),
+  availability: json("availability").$type<Array<{
+    dayOfWeek: string;
+    startTime: string;
+    endTime: string;
+  }>>(),
+  leaves: json("leaves").$type<Array<{
+    date: string | Date;
+    note?: string;
+    isRecurring?: boolean;
+  }>>(),
 });
 
 export type ExpertProfile = typeof expertProfile.$inferSelect;
