@@ -61,17 +61,17 @@ export class AuthService {
     return username;
   }
 
-  async getTokens(userId: string, email: string, role: string) {
+  async getTokens(userId: string, email: string, role: string, name?: string) {
     const [at, rt] = await Promise.all([
       this.jwtService.signAsync(
-        { sub: userId, email, role },
+        { sub: userId, email, role, name },
         {
           secret: this.configService.getOrThrow<string>("JWT_ACCESS_SECRET"),
           expiresIn: "15m",
         }
       ),
       this.jwtService.signAsync(
-        { sub: userId, email, role },
+        { sub: userId, email, role, name },
         {
           secret: this.configService.getOrThrow<string>("JWT_REFRESH_SECRET"),
           expiresIn: "7d",
@@ -104,7 +104,7 @@ export class AuthService {
       throw new ConflictException(`Email already registered as ${role}`);
 
     const username = await this.generateUniqueUsername(table);
-    const imageUrl = `https://api.dicebear.com{username}&radius=50&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+    const imageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}&radius=50&backgroundColor=b6e3f4,c0aede,d1d4f9`;
     const verificationToken = randomBytes(32).toString("hex");
     const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const hashedPassword = await argon2.hash(dto.password);
@@ -158,7 +158,7 @@ export class AuthService {
       throw new UnauthorizedException("Please verify your email");
     if (user.isBlocked) throw new UnauthorizedException("Account is suspended");
 
-    const tokens = await this.getTokens(user.id, user.email, role);
+    const tokens = await this.getTokens(user.id, user.email, role, user.name);
     await this.updateRefreshToken(user.id, role, tokens.refresh_token);
     return tokens;
   }
@@ -196,10 +196,28 @@ export class AuthService {
         .returning();
     }
 
-    const tokens = await this.getTokens(user.id, user.email, role);
+    const tokens = await this.getTokens(user.id, user.email, role, user.name);
     await this.updateRefreshToken(user.id, role, tokens.refresh_token);
 
-    const frontendUrl = this.configService.getOrThrow("FRONTEND_URL");
+    // Route to correct frontend based on role
+    let frontendUrl: string;
+    switch (role) {
+      case 'expert':
+        frontendUrl = this.configService.getOrThrow("EXPERT_FRONTEND_URL");
+        break;
+      case 'client':
+        frontendUrl = this.configService.getOrThrow("CLIENT_FRONTEND_URL");
+        break;
+      case 'organisation':
+        frontendUrl = this.configService.getOrThrow("ORGANISATION_FRONTEND_URL");
+        break;
+      case 'admin':
+        frontendUrl = this.configService.getOrThrow("ADMIN_FRONTEND_URL");
+        break;
+      default:
+        frontendUrl = this.configService.getOrThrow("FRONTEND_URL");
+    }
+
     return {
       url: `${frontendUrl}/auth/callback?at=${tokens.access_token}&rt=${tokens.refresh_token}`,
     };
@@ -320,5 +338,70 @@ export class AuthService {
       .where(eq(table.id, user.id));
 
     return { message: "Email verified successfully. You can now login." };
+  }
+
+  async fixAvatarUrls() {
+    console.log("Starting avatar URL fixes...");
+
+    // Fix expert avatars
+    const experts = await this.db.select().from(expert);
+    let fixedCount = 0;
+    
+    for (const expertRecord of experts) {
+      if (expertRecord.image && expertRecord.image.includes('api.dicebear.com{username}')) {
+        const newImageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${expertRecord.username}&radius=50&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+        await this.db
+          .update(expert)
+          .set({ image: newImageUrl })
+          .where(eq(expert.id, expertRecord.id));
+        console.log(`Fixed expert avatar: ${expertRecord.email}`);
+        fixedCount++;
+      }
+    }
+
+    // Fix client avatars
+    const clients = await this.db.select().from(client);
+    for (const clientRecord of clients) {
+      if (clientRecord.image && clientRecord.image.includes('api.dicebear.com{username}')) {
+        const newImageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${clientRecord.username}&radius=50&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+        await this.db
+          .update(client)
+          .set({ image: newImageUrl })
+          .where(eq(client.id, clientRecord.id));
+        console.log(`Fixed client avatar: ${clientRecord.email}`);
+        fixedCount++;
+      }
+    }
+
+    // Fix organisation avatars
+    const organisations = await this.db.select().from(organisation);
+    for (const orgRecord of organisations) {
+      if (orgRecord.image && orgRecord.image.includes('api.dicebear.com{username}')) {
+        const newImageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${orgRecord.username}&radius=50&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+        await this.db
+          .update(organisation)
+          .set({ image: newImageUrl })
+          .where(eq(organisation.id, orgRecord.id));
+        console.log(`Fixed organisation avatar: ${orgRecord.email}`);
+        fixedCount++;
+      }
+    }
+
+    // Fix admin avatars
+    const admins = await this.db.select().from(admin);
+    for (const adminRecord of admins) {
+      if (adminRecord.image && adminRecord.image.includes('api.dicebear.com{username}')) {
+        const newImageUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${adminRecord.username}&radius=50&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+        await this.db
+          .update(admin)
+          .set({ image: newImageUrl })
+          .where(eq(admin.id, adminRecord.id));
+        console.log(`Fixed admin avatar: ${adminRecord.email}`);
+        fixedCount++;
+      }
+    }
+
+    console.log(`Avatar URL fixes completed! Fixed ${fixedCount} records.`);
+    return { message: `Fixed ${fixedCount} avatar URLs` };
   }
 }
