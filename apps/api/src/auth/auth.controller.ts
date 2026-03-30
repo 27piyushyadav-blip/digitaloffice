@@ -87,10 +87,4 @@ export class AuthController {
   ) {
     return this.authService.refreshTokens(userId, role, refreshToken);
   }
-
-  @Public()
-  @Post("fix-avatar-urls")
-  async fixAvatarUrls() {
-    return this.authService.fixAvatarUrls();
-  }
 }
