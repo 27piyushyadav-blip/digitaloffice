@@ -81,4 +81,51 @@ export class DirectoryService {
       data: this.mapExpertToPublicProfile(rawExpert)
     };
   }
+
+  private mapOrganizationToPublicProfile(org: any) {
+    const toFullUrl = (url: string | null) => {
+      if (!url) return null;
+      if (url.startsWith('http')) return url;
+      return `http://localhost:3000${url}`;
+    };
+
+    return {
+        _id: org.id,
+        name: org.name,
+        description: org.description || "",
+        industry: org.industry || "",
+        location: org.location || "Online",
+        website: org.website || "",
+        logo: toFullUrl(org.logo),
+        introVideo: toFullUrl(org.introVideo),
+        verified: org.verified || org.verificationStatus === 'VERIFIED',
+        memberCount: org.memberCount || 0,
+        rating: typeof org.rating === 'number' ? org.rating : 4.5,
+        reviewCount: 15,
+        documents: org.documents || []
+    };
+  }
+
+  async getLiveOrganizations() {
+    const rawOrgs = await this.databaseService.findOrganizations();
+    
+    return {
+      status: 'success',
+      data: {
+        organizations: rawOrgs.map(org => this.mapOrganizationToPublicProfile(org)),
+        total: rawOrgs.length,
+        hasMore: false,
+      }
+    };
+  }
+
+  async getLiveOrganizationById(id: string) {
+    const rawOrg = await this.databaseService.findOrganizationById(id);
+    if (!rawOrg) return null;
+    
+    return {
+      status: 'success',
+      data: this.mapOrganizationToPublicProfile(rawOrg)
+    };
+  }
 }

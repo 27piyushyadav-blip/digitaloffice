@@ -21,4 +21,20 @@ export class DirectoryController {
     }
     return expert;
   }
+
+  @Public()
+  @Get('organizations')
+  async getLiveOrganizations() {
+    return this.directoryService.getLiveOrganizations();
+  }
+
+  @Public()
+  @Get('organizations/:id')
+  async getLiveOrganizationById(@Param('id') id: string) {
+    const org = await this.directoryService.getLiveOrganizationById(id);
+    if (!org) {
+        throw new NotFoundException('Organization not found or not currently live');
+    }
+    return org;
+  }
 }

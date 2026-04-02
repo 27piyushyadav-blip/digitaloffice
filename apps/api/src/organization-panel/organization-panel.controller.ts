@@ -69,12 +69,75 @@ export class OrganizationPanelController {
     return this.organizationPanelService.uploadLogo(organizationId, file);
   }
 
+  @Post('/profile/intro-video')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-videos',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(mp4|avi|mov|wmv)$/)) {
+          return cb(new BadRequestException('Only video files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB
+      },
+    }),
+  )
+  async uploadIntroVideo(
+    @GetCurrentUserId() organizationId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.organizationPanelService.uploadIntroVideo(organizationId, file);
+  }
+
   @Post('/profile/documents')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-docs',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        const allowedTypes = [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'image/jpeg',
+          'image/png',
+          'image/jpg'
+        ];
+        if (!allowedTypes.includes(file.mimetype)) {
+          return cb(new BadRequestException('Only PDF, Word, and image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB
+      },
+    }),
+  )
   async uploadDocuments(
     @GetCurrentUserId() organizationId: string,
-    @Body() documentData: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { title: string; category: string },
   ) {
-    return this.organizationPanelService.uploadDocuments(organizationId, documentData);
+    return this.organizationPanelService.uploadDocuments(organizationId, file, body.title, body.category);
   }
 
   // Verification APIs

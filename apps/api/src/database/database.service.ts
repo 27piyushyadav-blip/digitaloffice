@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { DatabaseClient, expert, expertProfile, profileChanges, client, conversations, messages } from '@repo/database';
+import { DatabaseClient, expert, expertProfile, profileChanges, client, conversations, messages, organizationProfile, organisation } from '@repo/database';
 import { eq, and, desc, or, sql } from 'drizzle-orm';
 
 @Injectable()
@@ -138,9 +138,77 @@ export class DatabaseService {
   }
 
   // Organization related queries
+  async findOrganizationById(organizationId: string) {
+    let [org] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.userId, organizationId));
+    
+    if (!org) {
+      const [account] = await this.db.select().from(organisation).where(eq(organisation.id, organizationId));
+      if (!account) return null;
+      
+      org = {
+        id: account.id,
+        userId: account.id,
+        name: account.name,
+        email: account.email || null,
+        phone: null,
+        description: null,
+        industry: null,
+        specialties: [],
+        location: null,
+        website: null,
+        logo: account.image || null,
+        introVideo: null,
+        foundedYear: null,
+        licenseNumber: null,
+        workingHours: null,
+        tags: [],
+        documents: [],
+        hasPendingUpdates: false,
+        verified: false,
+        memberCount: 0,
+        rating: "0",
+        verificationStatus: "ONBOARDING",
+        rejectionReason: null,
+        createdAt: account.createdAt,
+        updatedAt: account.updatedAt,
+      };
+    }
+    return org;
+  }
+
+  async updateOrganizationProfile(organizationId: string, data: any) {
+    const [existingProfile] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.userId, organizationId));
+    
+    if (!existingProfile) {
+      const [inserted] = await this.db.insert(organizationProfile).values({
+        userId: organizationId,
+        name: data.name || 'New Organization',
+        ...data,
+        hasPendingUpdates: true,
+        verificationStatus: 'PENDING',
+      }).returning();
+      return inserted;
+    } else {
+      const [updatedOrg] = await this.db
+        .update(organizationProfile)
+        .set({
+          ...data,
+          hasPendingUpdates: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(organizationProfile.userId, organizationId))
+        .returning();
+      return updatedOrg;
+    }
+  }
+
   async findOrganizations(search?: string) {
-    // TODO: Implement actual database query
-    return [];
+    let query = this.db.select().from(organizationProfile);
+    if (search) {
+      // Add a simple filter if needed
+    }
+    const results = await query;
+    return results;
   }
 
   async createJoinRequest(expertId: string, organizationId: string) {

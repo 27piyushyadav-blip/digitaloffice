@@ -1,54 +1,190 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 
+// Force reload after database rebuild
 @Injectable()
 export class OrganizationPanelService {
   constructor(private readonly databaseService: DatabaseService) {}
 
   // Organization Profile APIs
   async getProfile(organizationId: string) {
-    // TODO: Implement actual database query
+    const org = await this.databaseService.findOrganizationById(organizationId);
+    if (!org) throw new BadRequestException('Organization not found');
+    const toFullUrl = (url: string | null) => {
+      if (!url) return null;
+      if (url.startsWith('http')) return url;
+      return `http://localhost:3000${url}`;
+    };
+    
+    const changes = await this.databaseService.findLatestProfileChanges(organizationId);
+    const fieldStatuses: Record<string, { value: any; status: string }> = {};
+    if (changes) {
+      for (const change of changes) {
+        if (change.entityType === 'organization') {
+          const fieldKey = change.field.toLowerCase();
+          if (!fieldStatuses[fieldKey]) {
+            fieldStatuses[fieldKey] = {
+              value: change.newValue,
+              status: change.status,
+            };
+          }
+        }
+      }
+    }
+
     return {
-      id: organizationId,
-      name: 'ABC Legal Consultancy',
-      email: 'contact@abclegal.com',
-      phone: '9876543210',
-      location: 'Delhi',
-      website: 'https://abclegal.com',
-      description: 'Professional legal consultancy firm',
-      logo: null,
-      verificationStatus: 'VERIFIED',
-      createdAt: new Date(),
+      ...org,
+      logo: toFullUrl(org.logo),
+      introVideo: toFullUrl(org.introVideo),
+      documents: org.documents || [],
+      fieldStatuses,
     };
   }
 
   async updateProfile(organizationId: string, profileData: any) {
-    // TODO: Implement actual database update
+    const existingProfile = await this.databaseService.findOrganizationById(organizationId);
+    if (!existingProfile) throw new BadRequestException('Organization not found');
+
+    const changes = [];
+    const latestChanges = await this.databaseService.findLatestProfileChanges(organizationId);
+    const pendingValues: Record<string, any> = {};
+    if (latestChanges) {
+      for (const change of latestChanges) {
+        if (change.status === 'pending' && change.entityType === 'organization') {
+          const fieldKey = change.field.toLowerCase();
+          if (!pendingValues[fieldKey]) {
+            pendingValues[fieldKey] = change.newValue;
+          }
+        }
+      }
+    }
+
+    const fieldMappings: Record<string, string> = {
+      name: 'Name',
+      description: 'Description',
+      industry: 'Industry',
+      location: 'Location',
+      website: 'Website',
+    };
+
+    for (const [field, displayName] of Object.entries(fieldMappings)) {
+      const dbValue = (existingProfile as any)[field];
+      const newValue = profileData[field];
+      const effectiveValue = pendingValues[field] !== undefined ? pendingValues[field] : (dbValue || null);
+      
+      if (effectiveValue !== newValue && newValue !== undefined) {
+        changes.push({
+          entityType: 'organization',
+          entityId: organizationId,
+          field: displayName,
+          oldValue: dbValue || null,
+          newValue: newValue,
+          status: 'pending'
+        });
+      }
+    }
+
+    if (changes.length > 0) {
+      for (const change of changes) {
+        await this.databaseService.createProfileChange(change);
+      }
+    }
+
+    const updatedOrg = await this.databaseService.updateOrganizationProfile(organizationId, {
+      name: profileData.name !== undefined ? profileData.name : existingProfile.name,
+      description: profileData.description !== undefined ? profileData.description : existingProfile.description,
+      industry: profileData.industry !== undefined ? profileData.industry : existingProfile.industry,
+      location: profileData.location !== undefined ? profileData.location : existingProfile.location,
+      website: profileData.website !== undefined ? profileData.website : existingProfile.website,
+    });
+
     return {
-      message: 'Profile updated successfully',
-      profileId: organizationId,
-      ...profileData,
-      needsApproval: true,
+      message: 'Profile update submitted for admin approval',
+      status: 'PENDING_APPROVAL',
+      profile: updatedOrg,
+      changes: changes.length
     };
   }
 
   async uploadLogo(organizationId: string, file: Express.Multer.File) {
-    // TODO: Implement actual file upload and database update
+    if (!file) throw new BadRequestException('No file uploaded');
+    const fileUrl = `http://localhost:3000/uploads/organization-logos/${file.filename}`;
+    
+    const existingOrg = await this.databaseService.findOrganizationById(organizationId);
+    
+    await this.databaseService.createProfileChange({
+      entityType: 'organization',
+      entityId: organizationId,
+      field: 'Logo',
+      oldValue: existingOrg?.logo || null,
+      newValue: fileUrl,
+      status: 'pending'
+    });
+    
+    await this.databaseService.updateOrganizationProfile(organizationId, { logo: fileUrl });
     return {
       message: 'Logo uploaded successfully',
-      logoUrl: `/uploads/organization-logos/${file.filename}`,
+      logoUrl: fileUrl,
       organizationId,
+      status: 'PENDING_APPROVAL',
     };
   }
 
-  async uploadDocuments(organizationId: string, documentData: any) {
-    // TODO: Implement actual document upload
+  async uploadIntroVideo(organizationId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const fileUrl = `http://localhost:3000/uploads/organization-videos/${file.filename}`;
+    
+    const existingOrg = await this.databaseService.findOrganizationById(organizationId);
+    
+    await this.databaseService.createProfileChange({
+      entityType: 'organization',
+      entityId: organizationId,
+      field: 'Intro Video',
+      oldValue: existingOrg?.introVideo || null,
+      newValue: fileUrl,
+      status: 'pending'
+    });
+
+    await this.databaseService.updateOrganizationProfile(organizationId, { introVideo: fileUrl });
+    return {
+      message: 'Intro video uploaded successfully',
+      fileUrl,
+      organizationId,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  async uploadDocuments(organizationId: string, file: Express.Multer.File, title: string, category: string) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    if (!title || !category) throw new BadRequestException('Title and category are required');
+    const fileUrl = `http://localhost:3000/uploads/organization-docs/${file.filename}`;
+    
+    const existingOrg = await this.databaseService.findOrganizationById(organizationId);
+    
+    await this.databaseService.createProfileChange({
+      entityType: 'organization',
+      entityId: organizationId,
+      field: `Document: ${category} - ${title}`,
+      oldValue: null,
+      newValue: fileUrl,
+      status: 'pending'
+    });
+
+    const existingDocs = existingOrg?.documents || [];
+    const newDocument = {
+      title,
+      category,
+      url: fileUrl,
+      fileType: file.mimetype,
+      fileSize: `${Math.round(file.size / 1024)}KB`
+    };
+    const updatedDocs = [...existingDocs, newDocument];
+    await this.databaseService.updateOrganizationProfile(organizationId, { documents: updatedDocs });
     return {
       message: 'Document uploaded successfully',
-      documentId: 'doc_' + Date.now(),
+      document: newDocument,
       organizationId,
-      documentType: documentData.documentType,
-      fileUrl: documentData.fileUrl,
+      status: 'PENDING_APPROVAL',
     };
   }
 
