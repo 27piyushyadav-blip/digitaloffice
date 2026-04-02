@@ -1,7 +1,7 @@
 import { pgTable, uuid, text, timestamp, boolean, varchar, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { client, expert } from './users';
-import { organizations } from './organizations';
+import { organizationProfile } from './organizations';
 
 // Conversations table
 export const conversations = pgTable('conversations', {
@@ -9,7 +9,7 @@ export const conversations = pgTable('conversations', {
   type: varchar('type', { enum: ['expert', 'organization'] }).notNull(),
   clientId: uuid('client_id').notNull().references(() => client.id, { onDelete: 'cascade' }),
   expertId: uuid('expert_id').references(() => expert.id, { onDelete: 'cascade' }),
-  organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id').references(() => organizationProfile.id, { onDelete: 'cascade' }),
   status: varchar('status', { enum: ['active', 'archived', 'closed'] }).default('active').notNull(),
   lastMessageAt: timestamp('last_message_at').defaultNow(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -85,9 +85,9 @@ export const conversationsRelations = relations(conversations, ({ one, many }) =
     fields: [conversations.expertId],
     references: [expert.id],
   }),
-  organization: one(organizations, {
+  organization: one(organizationProfile, {
     fields: [conversations.organizationId],
-    references: [organizations.id],
+    references: [organizationProfile.id],
   }),
   messages: many(messages),
   participants: many(conversationParticipants),
