@@ -12,7 +12,7 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: ["http://localhost:3001", "http://localhost:3002", "http://localhost:3004", "http://localhost:3003", "http://localhost:3000"],
+    origin: ["http://localhost:3001", "http://localhost:3002", "http://localhost:3004", "http://localhost:3003", "http://localhost:3000", "https://admin.digitaloffices.com.au", "https://digitaloffices.com.au", "https://organisations.digitaloffices.com.au", "https://experts.digitaloffices.com.au"],
     credentials: true,
   });
 
