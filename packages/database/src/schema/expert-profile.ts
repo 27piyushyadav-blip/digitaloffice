@@ -12,7 +12,9 @@ export const expertProfile = pgTable("expert_profile", {
     degree: string;
     fieldOfStudy: string;
     institution: string;
-    year: number;
+    startDate: string;
+    endDate: string;
+    current: boolean;
   }>>(),
   latestEducation: text("latest_education"),
   profileImage: text("profile_image"),
@@ -34,9 +36,10 @@ export const expertProfile = pgTable("expert_profile", {
   tags: json("tags").$type<string[]>(),
   workHistory: json("work_history").$type<Array<{
     company: string;
-    position: string;
+    role: string;
     startDate: string;
     endDate: string;
+    current: boolean;
   }>>(),
   services: json("services").$type<Array<{
     name: string;
