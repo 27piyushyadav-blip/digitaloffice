@@ -55,7 +55,9 @@ export class DirectoryService {
         registrations: expert_profile.registrations || [],
         clinics: expert_profile.clinics || [],
         faqs: expert_profile.faqs || [],
-        reviews: expert_profile.reviews || []
+        reviews: expert_profile.reviews || [],
+        availability: expert_profile.availability || [],
+        leaves: expert_profile.leaves || []
     };
   }
 

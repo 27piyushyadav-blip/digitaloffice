@@ -71,6 +71,8 @@ export class ExpertService {
 
   async updateProfile(expertId: string, updateData: any) {
     const { 
+      name,
+      username,
       bio, 
       experience, 
       specialization, 
@@ -113,22 +115,33 @@ export class ExpertService {
     }
 
     const fieldMappings: Record<string, string> = {
+      name: 'Name',
+      username: 'Username',
       bio: 'Bio',
       gender: 'Gender', 
       location: 'Location',
       timezone: 'Timezone',
-      specialization: 'Specialization'
+      specialization: 'Specialization',
+      languages: 'Languages',
+      tags: 'Tags'
     };
 
     for (const [field, displayName] of Object.entries(fieldMappings)) {
-      const dbValue = currentProfileData[field];
+      // For name and username, get values from expert table, not profile table
+      let dbValue;
+      if (field === 'name' || field === 'username') {
+        dbValue = existingProfile[field];
+      } else {
+        dbValue = currentProfileData[field];
+      }
+      
       const newValue = updateData[field];
       
       const effectiveValue = pendingValues[field] !== undefined ? pendingValues[field] : (dbValue || null);
       
       if (effectiveValue !== newValue && newValue !== undefined) {
         changes.push({
-          entityType: 'expert_profile',
+          entityType: field === 'name' || field === 'username' ? 'expert' : 'expert_profile',
           entityId: expertId,
           field: displayName,
           oldValue: dbValue || null,
@@ -145,8 +158,17 @@ export class ExpertService {
       }
     }
 
-    // Update profile in database
-    const updatedProfile = await this.databaseService.updateExpertProfile(expertId, {
+    // Update expert table (for name and username)
+    const expertUpdateData: any = {};
+    if (name !== undefined) expertUpdateData.name = name;
+    if (username !== undefined) expertUpdateData.username = username;
+
+    if (Object.keys(expertUpdateData).length > 0) {
+      await this.databaseService.updateExpert(expertId, expertUpdateData);
+    }
+
+    // Update profile table (for all other fields)
+    const profileUpdateData = {
       bio,
       experience: experience ? parseInt(experience) : undefined,
       specialization,
@@ -164,7 +186,9 @@ export class ExpertService {
       documents: documents || [],
       availability: availability || [],
       leaves: leaves || [],
-    });
+    };
+
+    const updatedProfile = await this.databaseService.updateExpertProfile(expertId, profileUpdateData);
 
     return {
       message: 'Profile update submitted for admin approval',

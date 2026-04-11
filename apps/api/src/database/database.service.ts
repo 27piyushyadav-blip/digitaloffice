@@ -74,6 +74,18 @@ export class DatabaseService {
     return result || null;
   }
 
+  async updateExpert(expertId: string, data: any) {
+    const [updatedExpert] = await this.db
+      .update(expert)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(eq(expert.id, expertId))
+      .returning();
+    return updatedExpert;
+  }
+
   async updateExpertProfile(expertId: string, data: any) {
     const existingProfile = await this.db
       .select()
