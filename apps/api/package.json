@@ -26,6 +26,7 @@
     "nodemailer": "^8.0.1",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
+    "rxjs": "^7.8.2",
     "socket.io": "^4.8.3",
     "unique-names-generator": "^4.7.1"
   },

@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { DatabaseClient, expert, expertProfile, profileChanges, client, conversations, messages, organizationProfile, organisation } from '@repo/database';
-import { eq, and, desc, or, sql } from 'drizzle-orm';
+import { DatabaseClient, expert, expertProfile, profileChanges, client, conversations, messages, organizationProfile, organisation, expertOrganizations } from '@repo/database';
+import { eq, and, desc, or, sql, isNull } from 'drizzle-orm';
 
 @Injectable()
 export class DatabaseService {
-  constructor(@Inject('DB_CLIENT') private readonly db: any) {}
+  constructor(@Inject('DB_CLIENT') public readonly db: any) {}
 
   // User (Client) related queries
   async findClientById(clientId: string) {
@@ -52,17 +52,14 @@ export class DatabaseService {
 
   async findLiveExperts() {
     return await this.db
-      .select()
+      .select({
+        expert: expert,
+        expert_profile: expertProfile
+      })
       .from(expertProfile)
       .innerJoin(expert, eq(expertProfile.userId, expert.id))
-      // For testing, since they are largely not LIVE yet, let's allow all profiles if no LIVE exists, 
-      // or just filter properly:
-      // .where(eq(expertProfile.verificationStatus, 'LIVE')); 
-      // Wait, if no one is LIVE, the frontend will show 0 experts. Let's just return all for dev/testing.
-      // Or actually, let's keep it proper but handle the fallback in testing scenarios:
-      // We will select all experts who have a profile (to prevent crashing empty joins)
-      // and maybe order by verificationStatus so LIVE comes first, or just return them all for now.
-      // Since it's a test environment we will just return everyone to prevent an empty page during development.
+      .leftJoin(expertOrganizations, eq(expert.id, expertOrganizations.expertId))
+      .where(isNull(expertOrganizations.organizationId));
   }
 
   async findLiveExpertById(expertId: string) {
@@ -163,15 +160,38 @@ export class DatabaseService {
         name: account.name,
         email: account.email || null,
         phone: null,
+        phoneNumber: null,
+        officialEmail: account.email || null,
         description: null,
+        tagline: null,
+        aboutUs: null,
+        category: null,
+        subdomain: null,
         industry: null,
         specialties: [],
         location: null,
+        addressLine1: null,
+        city: null,
+        state: null,
+        zipCode: null,
+        isPhysicalOffice: false,
+        coordinates: null,
         website: null,
+        websiteUrl: null,
+        socialLinks: null,
         logo: account.image || null,
+        logoUrl: account.image || null,
+        coverImageUrl: null,
         introVideo: null,
         foundedYear: null,
         licenseNumber: null,
+        taxIdNumber: null,
+        businessLicenseUrl: null,
+        offeredServiceTypes: [],
+        operatingHours: [],
+        bookingPolicy: null,
+        cancellationWindowHours: null,
+        bankDetails: null,
         workingHours: null,
         tags: [],
         documents: [],
@@ -188,6 +208,28 @@ export class DatabaseService {
     return org;
   }
 
+  async findOrganizationBySubdomain(subdomain: string) {
+    let [org] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.subdomain, subdomain));
+    return org || null;
+  }
+
+  async findOrganizationByProfileId(profileId: string) {
+    let [org] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.id, profileId));
+    return org || null;
+  }
+
+  async findOrganizationExperts(organizationProfileId: string) {
+    return await this.db
+      .select({
+        expert: expert,
+        expert_profile: expertProfile,
+      })
+      .from(expertOrganizations)
+      .innerJoin(expert, eq(expertOrganizations.expertId, expert.id))
+      .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
+      .where(eq(expertOrganizations.organizationId, organizationProfileId));
+  }
+
   async updateOrganizationProfile(organizationId: string, data: any) {
     const [existingProfile] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.userId, organizationId));
     
@@ -197,7 +239,7 @@ export class DatabaseService {
         name: data.name || 'New Organization',
         ...data,
         hasPendingUpdates: true,
-        verificationStatus: 'PENDING',
+        verificationStatus: data.verificationStatus || 'ONBOARDING',
       }).returning();
       return inserted;
     } else {
@@ -214,13 +256,35 @@ export class DatabaseService {
     }
   }
 
-  async findOrganizations(search?: string) {
-    let query = this.db.select().from(organizationProfile);
-    if (search) {
-      // Add a simple filter if needed
+  async findOrganizationsByStatus(status: string) {
+    return await this.db
+      .select({
+        ...organizationProfile,
+        email: organisation.email,
+      })
+      .from(organizationProfile)
+      .leftJoin(organisation, eq(organizationProfile.userId, organisation.id))
+      .where(eq(organizationProfile.verificationStatus, status));
+  }
+
+  async findOrganizations(status?: string, location?: string, industry?: string) {
+    let conditions = [];
+    if (status) conditions.push(eq(organizationProfile.verificationStatus, status));
+    if (location) conditions.push(eq(organizationProfile.location, location));
+    if (industry) conditions.push(eq(organizationProfile.industry, industry));
+
+    let query = this.db
+      .select({
+        ...organizationProfile,
+        email: organisation.email,
+      })
+      .from(organizationProfile)
+      .leftJoin(organisation, eq(organizationProfile.userId, organisation.id));
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
     }
-    const results = await query;
-    return results;
+    
+    return await query;
   }
 
   async createJoinRequest(expertId: string, organizationId: string) {
@@ -392,6 +456,72 @@ export class DatabaseService {
     return enriched;
   }
 
+  async findConversationsByOrganizationId(organizationProfileId: string) {
+    // Find all experts in this organization
+    const expertLinks = await this.db.select().from(expertOrganizations).where(eq(expertOrganizations.organizationId, organizationProfileId));
+    const expertIds = expertLinks.map(link => link.expertId);
+
+    // Find conversations where organizationId matches OR expertId is in the organization's team
+    const rows = await this.db
+      .select()
+      .from(conversations)
+      .where(
+        or(
+          eq(conversations.organizationId, organizationProfileId),
+          expertIds.length > 0 ? sql`${conversations.expertId} IN (${sql.join(expertIds, sql`, `)})` : sql`FALSE`
+        )
+      )
+      .orderBy(desc(conversations.lastMessageAt));
+
+    // Enrich each conversation with other user's info (Client info)
+    const enriched = [];
+    for (const convo of rows) {
+      const [otherUser] = await this.db.select().from(client).where(eq(client.id, convo.clientId));
+      
+      // Get last message
+      const [lastMsg] = await this.db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, convo.id))
+        .orderBy(desc(messages.createdAt))
+        .limit(1);
+
+      // Count unread messages for 'organization' view (sent by client)
+      const unreadResult = await this.db
+        .select({ count: sql<number>`count(*)` })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, convo.id),
+            eq(messages.isRead, false),
+            eq(messages.senderType, 'client')
+          )
+        );
+
+      enriched.push({
+        _id: convo.id,
+        id: convo.id,
+        type: convo.type,
+        status: convo.status,
+        expertId: convo.expertId,
+        clientId: convo.clientId,
+        otherUser: otherUser ? {
+          _id: otherUser.id,
+          name: otherUser.name,
+          profilePicture: otherUser.image || null,
+          isOnline: false,
+          lastSeen: null,
+        } : null,
+        lastMessage: lastMsg?.content || null,
+        lastMessageAt: lastMsg?.createdAt || convo.createdAt,
+        lastMessageSender: lastMsg?.senderId || null,
+        unreadCount: Number(unreadResult[0]?.count || 0),
+      });
+    }
+
+    return enriched;
+  }
+
   async findMessagesByConversationId(conversationId: string, page: number = 1, limit: number = 50) {
     const offset = (page - 1) * limit;
 
@@ -478,6 +608,14 @@ export class DatabaseService {
     };
   }
 
+  async findConversationById(conversationId: string) {
+    const [existing] = await this.db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, conversationId));
+    return existing || null;
+  }
+
   async findOrCreateConversation(data: {
     clientId: string;
     expertId: string;
@@ -496,12 +634,24 @@ export class DatabaseService {
 
     if (existing) return existing;
 
+    // Detect expert's organization if any
+    let organizationId = null;
+    if (data.expertId) {
+      const [orgLink] = await this.db
+        .select()
+        .from(expertOrganizations)
+        .where(eq(expertOrganizations.expertId, data.expertId))
+        .limit(1);
+      if (orgLink) organizationId = orgLink.organizationId;
+    }
+
     // Create new
     const [newConvo] = await this.db
       .insert(conversations)
       .values({
         clientId: data.clientId,
         expertId: data.expertId,
+        organizationId: organizationId,
         type: data.type || 'expert',
         status: 'active',
       })

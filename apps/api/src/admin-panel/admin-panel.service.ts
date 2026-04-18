@@ -118,77 +118,122 @@ export class AdminPanelService {
 
   // Organization Verification APIs
   async getPendingOrganizations() {
-    // TODO: Implement actual database query
-    return [
-      {
-        orgId: 'org_123',
-        name: 'ABC Legal Consultancy',
-        email: 'contact@abclegal.com',
-        industry: 'Legal Services',
-        location: 'Delhi',
-        website: 'https://abclegal.com',
-        documents: ['business_license.pdf', 'gst_certificate.pdf'],
-        status: 'pending',
-        submittedAt: new Date('2024-03-07'),
-      },
-    ];
+    const orgs = await this.databaseService.findOrganizationsByStatus('PENDING');
+    return orgs.map(org => ({
+      orgId: org.userId,
+      name: org.name,
+      email: org.email,
+      phone: org.phone,
+      industry: org.industry,
+      location: org.location,
+      description: org.description,
+      logo: org.logo,
+      introVideo: org.introVideo,
+      website: org.website,
+      documents: org.documents,
+      status: org.verificationStatus,
+      rejectionReason: org.rejectionReason,
+      submittedAt: org.updatedAt,
+      tagline: org.tagline,
+      category: org.category,
+      subdomain: org.subdomain,
+      aboutUs: org.aboutUs,
+      coverImageUrl: org.coverImageUrl,
+      officialEmail: org.officialEmail,
+      phoneNumber: org.phoneNumber,
+      websiteUrl: org.websiteUrl,
+      socialLinks: org.socialLinks,
+      isPhysicalOffice: org.isPhysicalOffice,
+      addressLine1: org.addressLine1,
+      city: org.city,
+      state: org.state,
+      zipCode: org.zipCode,
+      coordinates: org.coordinates,
+      offeredServiceTypes: org.offeredServiceTypes,
+      bookingPolicy: org.bookingPolicy,
+      cancellationWindowHours: org.cancellationWindowHours,
+      operatingHours: org.operatingHours,
+      taxIdNumber: org.taxIdNumber,
+      businessLicenseUrl: org.businessLicenseUrl,
+      bankDetails: org.bankDetails,
+    }));
   }
 
   async approveOrganization(orgId: string) {
-    // TODO: Implement actual database update
+    await this.databaseService.updateOrganizationProfile(orgId, {
+      verified: true,
+      verificationStatus: 'VERIFIED',
+    });
     return {
       message: 'Organization approved successfully',
       orgId,
       approvedAt: new Date(),
-      status: 'verified',
+      status: 'VERIFIED',
     };
   }
 
   async rejectOrganization(orgId: string, rejectData: any) {
-    // TODO: Implement actual database update
+    await this.databaseService.updateOrganizationProfile(orgId, {
+      verified: false,
+      verificationStatus: 'REJECTED',
+      rejectionReason: rejectData.reason,
+    });
     return {
       message: 'Organization rejected',
       orgId,
       reason: rejectData.reason,
       rejectedAt: new Date(),
-      status: 'rejected',
+      status: 'REJECTED',
     };
   }
 
   async getAllOrganizations(status?: string, location?: string, industry?: string) {
-    // TODO: Implement actual database query with filters
+    const orgs = await this.databaseService.findOrganizations(status, location, industry);
     return {
-      organizations: [
-        {
-          orgId: 'org_123',
-          name: 'ABC Legal Consultancy',
-          email: 'contact@abclegal.com',
-          industry: 'Legal Services',
-          location: 'Delhi',
-          website: 'https://abclegal.com',
-          memberCount: 15,
-          rating: 4.7,
-          totalBookings: 450,
-          revenue: 900000,
-          status: 'verified',
-          joinedAt: new Date('2024-01-01'),
-        },
-        {
-          orgId: 'org_456',
-          name: 'Tax Advisors Ltd',
-          email: 'info@taxadvisors.com',
-          industry: 'Financial Services',
-          location: 'Mumbai',
-          website: 'https://taxadvisors.com',
-          memberCount: 8,
-          rating: 4.5,
-          totalBookings: 120,
-          revenue: 240000,
-          status: 'pending',
-          joinedAt: new Date('2024-03-01'),
-        },
-      ],
-      total: 2,
+      organizations: orgs.map(org => ({
+        orgId: org.userId,
+        name: org.name,
+        email: org.email,
+        phone: org.phone,
+        industry: org.industry,
+        location: org.location,
+        description: org.description,
+        logo: org.logo,
+        introVideo: org.introVideo,
+        website: org.website,
+        memberCount: org.memberCount,
+        rating: org.rating,
+        status: org.verificationStatus?.toLowerCase() || 'pending',
+        rejectionReason: org.rejectionReason,
+        joinedAt: org.createdAt,
+        documents: org.documents,
+        tagline: org.tagline,
+        category: org.category,
+        subdomain: org.subdomain,
+        aboutUs: org.aboutUs,
+        coverImageUrl: org.coverImageUrl,
+        officialEmail: org.officialEmail,
+        phoneNumber: org.phoneNumber,
+        websiteUrl: org.websiteUrl,
+        socialLinks: org.socialLinks,
+        isPhysicalOffice: org.isPhysicalOffice,
+        addressLine1: org.addressLine1,
+        city: org.city,
+        state: org.state,
+        zipCode: org.zipCode,
+        coordinates: org.coordinates,
+        offeredServiceTypes: org.offeredServiceTypes,
+        bookingPolicy: org.bookingPolicy,
+        cancellationWindowHours: org.cancellationWindowHours,
+        operatingHours: org.operatingHours,
+        taxIdNumber: org.taxIdNumber,
+        businessLicenseUrl: org.businessLicenseUrl,
+        bankDetails: org.bankDetails,
+      })),
+      total: orgs.length,
+      verifiedCount: orgs.filter(o => o.verificationStatus === 'VERIFIED').length,
+      pendingCount: orgs.filter(o => o.verificationStatus === 'PENDING').length,
+      rejectedCount: orgs.filter(o => o.verificationStatus === 'REJECTED').length,
       filters: { status, location, industry },
     };
   }

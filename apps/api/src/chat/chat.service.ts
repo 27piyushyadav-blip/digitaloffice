@@ -1,8 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { Subject } from 'rxjs';
 
 @Injectable()
 export class ChatService {
+  private readonly messageSubject = new Subject<any>();
+  public readonly message$ = this.messageSubject.asObservable();
+
   constructor(private readonly databaseService: DatabaseService) {}
 
   // Get conversations for a user (client or expert)
@@ -19,19 +23,26 @@ export class ChatService {
 
   // Send message via REST API
   async sendMessage(userId: string, conversationId: string, messageData: any) {
-    // Determine sender/recipient types from the conversation
-    const convo = await this.databaseService.findOrCreateConversation({
-      clientId: messageData.clientId || userId,
-      expertId: messageData.expertId || messageData.recipientId,
-      type: 'expert',
-    });
+    // 1. Find the conversation by ID first
+    let convo = await this.databaseService.findConversationById(conversationId);
+    
+    // 2. Fallback to legacy participant-based lookup if ID search fails
+    if (!convo) {
+      convo = await this.databaseService.findOrCreateConversation({
+        clientId: messageData.clientId || userId,
+        expertId: messageData.expertId || messageData.recipientId,
+        type: 'expert',
+      });
+    }
 
     const senderType = messageData.senderType || 'client';
-    const recipientType = senderType === 'client' ? 'expert' : 'client';
-    const recipientId = senderType === 'client' ? convo.expertId : convo.clientId;
+    
+    // 3. Robust recipient identification
+    let recipientId = messageData.recipientId || (senderType === 'client' ? convo.expertId : convo.clientId);
+    let recipientType = messageData.recipientType || (senderType === 'client' ? 'expert' : 'client');
 
     const savedMessage = await this.databaseService.createMessage({
-      conversationId,
+      conversationId: convo.id,
       senderId: userId,
       senderType,
       content: messageData.message || messageData.content,
@@ -39,6 +50,9 @@ export class ChatService {
       recipientType,
       messageType: messageData.contentType || 'text',
     });
+
+    // Notify listeners (like ChatGateway) for real-time delivery
+    this.messageSubject.next(savedMessage);
 
     return savedMessage;
   }

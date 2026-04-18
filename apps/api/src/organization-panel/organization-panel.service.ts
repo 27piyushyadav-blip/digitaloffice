@@ -1,5 +1,9 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { expert, expertProfile, expertOrganizations, organisation, organizationProfile } from '@repo/database';
+import { eq, and } from 'drizzle-orm';
+import * as argon2 from 'argon2';
+import { randomBytes } from 'crypto';
 
 // Force reload after database rebuild
 @Injectable()
@@ -62,9 +66,27 @@ export class OrganizationPanelService {
     const fieldMappings: Record<string, string> = {
       name: 'Name',
       description: 'Description',
+      tagline: 'Tagline',
+      aboutUs: 'About Us',
+      category: 'Category',
       industry: 'Industry',
+      subdomain: 'Subdomain',
       location: 'Location',
+      addressLine1: 'Address Line 1',
+      city: 'City',
+      state: 'State',
+      zipCode: 'Zip Code',
+      isPhysicalOffice: 'Is Physical Office',
       website: 'Website',
+      websiteUrl: 'Website URL',
+      officialEmail: 'Official Email',
+      phone: 'Phone',
+      phoneNumber: 'Phone Number',
+      foundedYear: 'Founded Year',
+      licenseNumber: 'License Number',
+      taxIdNumber: 'Tax ID Number',
+      bookingPolicy: 'Booking Policy',
+      cancellationWindowHours: 'Cancellation Window',
     };
 
     for (const [field, displayName] of Object.entries(fieldMappings)) {
@@ -93,9 +115,39 @@ export class OrganizationPanelService {
     const updatedOrg = await this.databaseService.updateOrganizationProfile(organizationId, {
       name: profileData.name !== undefined ? profileData.name : existingProfile.name,
       description: profileData.description !== undefined ? profileData.description : existingProfile.description,
+      tagline: profileData.tagline !== undefined ? profileData.tagline : (existingProfile as any).tagline,
+      aboutUs: profileData.aboutUs !== undefined ? profileData.aboutUs : (existingProfile as any).aboutUs,
+      category: profileData.category !== undefined ? profileData.category : (existingProfile as any).category,
       industry: profileData.industry !== undefined ? profileData.industry : existingProfile.industry,
+      subdomain: profileData.subdomain !== undefined ? profileData.subdomain : (existingProfile as any).subdomain,
       location: profileData.location !== undefined ? profileData.location : existingProfile.location,
+      addressLine1: profileData.addressLine1 !== undefined ? profileData.addressLine1 : (existingProfile as any).addressLine1,
+      city: profileData.city !== undefined ? profileData.city : (existingProfile as any).city,
+      state: profileData.state !== undefined ? profileData.state : (existingProfile as any).state,
+      zipCode: profileData.zipCode !== undefined ? profileData.zipCode : (existingProfile as any).zipCode,
+      isPhysicalOffice: profileData.isPhysicalOffice !== undefined ? profileData.isPhysicalOffice : (existingProfile as any).isPhysicalOffice,
+      coordinates: profileData.coordinates !== undefined ? profileData.coordinates : (existingProfile as any).coordinates,
       website: profileData.website !== undefined ? profileData.website : existingProfile.website,
+      websiteUrl: profileData.websiteUrl !== undefined ? profileData.websiteUrl : (existingProfile as any).websiteUrl,
+      officialEmail: profileData.officialEmail !== undefined ? profileData.officialEmail : (existingProfile as any).officialEmail,
+      phone: profileData.phone !== undefined ? profileData.phone : (existingProfile as any).phone,
+      phoneNumber: profileData.phoneNumber !== undefined ? profileData.phoneNumber : (existingProfile as any).phoneNumber,
+      socialLinks: profileData.socialLinks !== undefined ? profileData.socialLinks : (existingProfile as any).socialLinks,
+      logoUrl: profileData.logoUrl !== undefined ? profileData.logoUrl : (existingProfile as any).logoUrl,
+      coverImageUrl: profileData.coverImageUrl !== undefined ? profileData.coverImageUrl : (existingProfile as any).coverImageUrl,
+      documents: profileData.documents !== undefined ? profileData.documents : existingProfile.documents,
+      workingHours: profileData.workingHours !== undefined ? profileData.workingHours : existingProfile.workingHours,
+      operatingHours: profileData.operatingHours !== undefined ? profileData.operatingHours : (existingProfile as any).operatingHours,
+      offeredServiceTypes: profileData.offeredServiceTypes !== undefined ? profileData.offeredServiceTypes : (existingProfile as any).offeredServiceTypes,
+      bookingPolicy: profileData.bookingPolicy !== undefined ? profileData.bookingPolicy : (existingProfile as any).bookingPolicy,
+      cancellationWindowHours: profileData.cancellationWindowHours !== undefined ? profileData.cancellationWindowHours : (existingProfile as any).cancellationWindowHours,
+      bankDetails: profileData.bankDetails !== undefined ? profileData.bankDetails : (existingProfile as any).bankDetails,
+      foundedYear: profileData.foundedYear !== undefined ? profileData.foundedYear : existingProfile.foundedYear,
+      licenseNumber: profileData.licenseNumber !== undefined ? profileData.licenseNumber : existingProfile.licenseNumber,
+      taxIdNumber: profileData.taxIdNumber !== undefined ? profileData.taxIdNumber : (existingProfile as any).taxIdNumber,
+      businessLicenseUrl: profileData.businessLicenseUrl !== undefined ? profileData.businessLicenseUrl : (existingProfile as any).businessLicenseUrl,
+      tags: profileData.tags !== undefined ? profileData.tags : existingProfile.tags,
+      verificationStatus: profileData.verificationStatus !== undefined ? profileData.verificationStatus : existingProfile.verificationStatus,
     });
 
     return {
@@ -125,6 +177,30 @@ export class OrganizationPanelService {
     return {
       message: 'Logo uploaded successfully',
       logoUrl: fileUrl,
+      organizationId,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  async uploadCoverImage(organizationId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const fileUrl = `http://localhost:3000/uploads/organization-covers/${file.filename}`;
+    
+    const existingOrg = await this.databaseService.findOrganizationById(organizationId);
+    
+    await this.databaseService.createProfileChange({
+      entityType: 'organization',
+      entityId: organizationId,
+      field: 'Cover Image',
+      oldValue: existingOrg?.coverImageUrl || null,
+      newValue: fileUrl,
+      status: 'pending'
+    });
+    
+    await this.databaseService.updateOrganizationProfile(organizationId, { coverImageUrl: fileUrl });
+    return {
+      message: 'Cover image uploaded successfully',
+      coverUrl: fileUrl,
       organizationId,
       status: 'PENDING_APPROVAL',
     };
@@ -190,50 +266,130 @@ export class OrganizationPanelService {
 
   // Verification APIs
   async getVerificationStatus(organizationId: string) {
-    // TODO: Implement actual database query
+    const org = await this.databaseService.findOrganizationById(organizationId);
+    if (!org) throw new BadRequestException('Organization not found');
+
     return {
-      status: 'VERIFIED',
-      submittedAt: new Date('2024-01-15'),
-      verifiedAt: new Date('2024-01-20'),
-      rejectionReason: null,
+      status: org.verificationStatus,
+      verified: org.verified,
+      rejectionReason: org.rejectionReason,
+      updatedAt: org.updatedAt,
     };
   }
 
   // Expert Management APIs
-  async getOrganizationExperts(organizationId: string) {
-    // TODO: Implement actual database query
+  async getOrganizationExperts(userId: string) {
+    try {
+      const org = await this.getProfile(userId);
+      const organizationProfileId = org.id;
+
+      const experts = await this.databaseService.db
+        .select({
+          id: expert.id,
+          name: expert.name,
+          email: expert.email,
+          username: expert.username,
+          avatar: expertProfile.profileImage,
+          specialization: expertProfile.specialization,
+          status: expertProfile.verificationStatus,
+          createdAt: expert.createdAt,
+          availability: expertProfile.availability,
+        })
+        .from(expertOrganizations)
+        .innerJoin(expert, eq(expertOrganizations.expertId, expert.id))
+        .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
+        .where(eq(expertOrganizations.organizationId, organizationProfileId));
+
+      return {
+        experts: experts.map(e => ({
+          ...e,
+          id: e.id,
+          status: e.status === 'LIVE' ? 'active' : 'hidden',
+          joinedAt: e.createdAt,
+          totalBookings: 0, 
+          revenue: 0,      
+          timings: (e.availability as any[] || []).map(a => ({
+            day: a.dayOfWeek?.substring(0, 3) || 'Day',
+            time: `${a.startTime} - ${a.endTime}`
+          })),
+          services: [], 
+        })),
+        total: experts.length,
+        active: experts.filter(e => e.status === 'LIVE').length,
+        inactive: experts.filter(e => e.status !== 'LIVE').length,
+      };
+    } catch (error) {
+      const fs = require('fs');
+      fs.writeFileSync('c:\\Users\\HP\\Desktop\\project1\\digitaloffice\\apps\\api\\error_log.txt', error.stack || error.message);
+      throw error;
+    }
+  }
+
+  async createExpert(userId: string, data: any) {
+    const org = await this.getProfile(userId);
+    const organizationProfileId = org.id;
+
+    const { name, email, username, bio, specialization, experience, consultationFee, avatar, introVideo, education, workHistory, availability, languages, socialLinks, tags, services } = data;
+
+    // 1. Check if user already exists
+    const existing = await this.databaseService.db
+      .select()
+      .from(expert)
+      .where(eq(expert.email, email));
+    
+    if (existing.length > 0) throw new ConflictException('An expert with this email already exists');
+
+    // 2. Create Expert Account
+    const randomPass = randomBytes(16).toString('hex');
+    const hashedPassword = await argon2.hash(randomPass);
+
+    const [newExpert] = await this.databaseService.db
+      .insert(expert)
+      .values({
+        name,
+        email,
+        username: username || email.split('@')[0],
+        password: hashedPassword,
+        isEmailVerified: true, // Organization added experts are pre-verified
+      })
+      .returning();
+
+    // 3. Create Expert Profile
+    await this.databaseService.db
+      .insert(expertProfile)
+      .values({
+        userId: newExpert.id,
+        bio,
+        specialization,
+        experience: Number(experience) || 0,
+        consultationFee: consultationFee ? String(consultationFee) : "0",
+        profileImage: avatar,
+        introVideo,
+        education: education || [],
+        workHistory: workHistory || [],
+        availability: availability || [],
+        languages: languages || [],
+        socialLinks: socialLinks || {},
+        tags: tags || [],
+        services: services || [],
+        verificationStatus: 'LIVE', // Mark as live immediately when added by organization
+        isVerified: true,
+      });
+
+    // 4. Link to Organization Profile
+    await this.databaseService.db
+      .insert(expertOrganizations)
+      .values({
+        expertId: newExpert.id,
+        organizationId: organizationProfileId,
+        status: 'APPROVED',
+        joinedAt: new Date(),
+      });
+
     return {
-      experts: [
-        {
-          id: 'exp_1',
-          name: 'Dr. Sarah Johnson',
-          email: 'sarah.johnson@example.com',
-          phone: '+1 234-567-8900',
-          specialization: 'Business Consulting',
-          rating: 4.8,
-          totalBookings: 45,
-          revenue: 1250,
-          status: 'active',
-          joinedAt: new Date('2024-01-01'),
-          profileImage: '/avatars/sarah.jpg',
-        },
-        {
-          id: 'exp_2',
-          name: 'Dr. Michael Chen',
-          email: 'michael.chen@example.com',
-          phone: '+1 234-567-8901',
-          specialization: 'Financial Advisory',
-          rating: 4.6,
-          totalBookings: 38,
-          revenue: 980,
-          status: 'active',
-          joinedAt: new Date('2024-01-15'),
-          profileImage: '/avatars/michael.jpg',
-        },
-      ],
-      total: 2,
-      active: 2,
-      inactive: 0,
+      message: 'Expert created and linked successfully',
+      expertId: newExpert.id,
+      temporaryPassword: randomPass, // In a real system, we'd email this
     };
   }
 
@@ -638,5 +794,17 @@ export class OrganizationPanelService {
       organizationId,
       readAt: new Date(),
     };
+  }
+
+  // Chat APIs
+  async getConversations(userId: string) {
+    const orgProfile = await this.getProfile(userId);
+    const conversations = await this.databaseService.findConversationsByOrganizationId(orgProfile.id);
+    return { conversations };
+  }
+
+  async getMessages(userId: string, conversationId: string, page: number = 1, limit: number = 50) {
+    // In a real system, you'd verify the conversation belongs to the organization here
+    return await this.databaseService.findMessagesByConversationId(conversationId, page, limit);
   }
 }

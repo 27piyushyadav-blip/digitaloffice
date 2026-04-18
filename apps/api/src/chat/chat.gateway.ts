@@ -41,6 +41,12 @@ export class ChatGateway
 
   afterInit(server: Server) {
     this.logger.log('WebSocket Gateway initialized');
+
+    // Subscribe to messages from ChatService (REST API initiated)
+    this.chatService.message$.subscribe((message) => {
+      this.logger.log(`🔥 Broadcasting message via WebSocket: ${message.content}`);
+      this.server.to(`conversation_${message.conversationId}`).emit('new-message', message);
+    });
   }
 
   async handleConnection(client: AuthenticatedSocket) {

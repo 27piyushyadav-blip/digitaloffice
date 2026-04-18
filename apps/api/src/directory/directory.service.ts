@@ -94,6 +94,7 @@ export class DirectoryService {
     return {
         _id: org.id,
         name: org.name,
+        subdomain: org.subdomain,
         description: org.description || "",
         industry: org.industry || "",
         location: org.location || "Online",
@@ -104,30 +105,59 @@ export class DirectoryService {
         memberCount: org.memberCount || 0,
         rating: typeof org.rating === 'number' ? org.rating : 4.5,
         reviewCount: 15,
-        documents: org.documents || []
+        documents: org.documents || [],
+        tags: org.tags || []
     };
   }
 
   async getLiveOrganizations() {
-    const rawOrgs = await this.databaseService.findOrganizations();
+    const rawOrgs = await this.databaseService.findOrganizations('VERIFIED');
+    
+    // For each organization, fetch real expert count if not already accurate
+    const orgsWithCount = await Promise.all(rawOrgs.map(async (org) => {
+      const experts = await this.databaseService.findOrganizationExperts(org.id);
+      return {
+        ...org,
+        memberCount: experts.length
+      };
+    }));
     
     return {
       status: 'success',
       data: {
-        organizations: rawOrgs.map(org => this.mapOrganizationToPublicProfile(org)),
+        organizations: orgsWithCount.map(org => this.mapOrganizationToPublicProfile(org)),
         total: rawOrgs.length,
         hasMore: false,
       }
     };
   }
 
-  async getLiveOrganizationById(id: string) {
-    const rawOrg = await this.databaseService.findOrganizationById(id);
+  async getLiveOrganizationById(idOrSubdomain: string) {
+    let rawOrg = null;
+    
+    // Check if it's a valid UUID before querying by ID to avoid Postgres crash
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idOrSubdomain);
+    
+    if (isUuid) {
+      rawOrg = await this.databaseService.findOrganizationByProfileId(idOrSubdomain);
+    }
+    
+    if (!rawOrg) {
+      rawOrg = await this.databaseService.findOrganizationBySubdomain(idOrSubdomain);
+    }
+    
     if (!rawOrg) return null;
+    
+    // Fetch affiliated experts
+    const rawExperts = await this.databaseService.findOrganizationExperts(rawOrg.id);
+    const experts = rawExperts.map(this.mapExpertToPublicProfile);
     
     return {
       status: 'success',
-      data: this.mapOrganizationToPublicProfile(rawOrg)
+      data: {
+        ...this.mapOrganizationToPublicProfile(rawOrg),
+        experts: experts
+      }
     };
   }
 }

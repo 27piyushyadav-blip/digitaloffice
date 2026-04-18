@@ -69,6 +69,37 @@ export class OrganizationPanelController {
     return this.organizationPanelService.uploadLogo(organizationId, file);
   }
 
+  @Post('/profile/cover-image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-covers',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+          return cb(new BadRequestException('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB
+      },
+    }),
+  )
+  async uploadCoverImage(
+    @GetCurrentUserId() organizationId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.organizationPanelService.uploadCoverImage(organizationId, file);
+  }
+
   @Post('/profile/intro-video')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -166,6 +197,14 @@ export class OrganizationPanelController {
     @Param('expertId') expertId: string,
   ) {
     return this.organizationPanelService.removeExpert(organizationId, expertId);
+  }
+
+  @Post('/experts')
+  async createExpert(
+    @GetCurrentUserId() organizationId: string,
+    @Body() expertData: any,
+  ) {
+    return this.organizationPanelService.createExpert(organizationId, expertData);
   }
 
   @Post('/experts/:expertId/services')
@@ -303,5 +342,21 @@ export class OrganizationPanelController {
     @Param('id') notificationId: string,
   ) {
     return this.organizationPanelService.markNotificationRead(organizationId, notificationId);
+  }
+
+  // Chat APIs
+  @Get('/conversations')
+  async getConversations(@GetCurrentUserId() userId: string) {
+    return this.organizationPanelService.getConversations(userId);
+  }
+
+  @Get('/conversations/:id/messages')
+  async getMessages(
+    @GetCurrentUserId() userId: string,
+    @Param('id') conversationId: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.organizationPanelService.getMessages(userId, conversationId, Number(page) || 1, Number(limit) || 50);
   }
 }
