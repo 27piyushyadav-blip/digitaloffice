@@ -1,9 +1,13 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 
 @Injectable()
 export class ExpertService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async getProfile(expertId: string) {
     const expertData = await this.databaseService.findExpertById(expertId);
@@ -15,7 +19,8 @@ export class ExpertService {
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
       if (url.startsWith('http')) return url;
-      return `http://localhost:3000${url}`;
+      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+      return `${baseUrl}${url}`;
     };
 
     const changes = await this.databaseService.findLatestProfileChanges(expertId);
@@ -203,7 +208,8 @@ export class ExpertService {
       throw new BadRequestException('No file uploaded');
     }
 
-    const fileUrl = `http://localhost:3000/uploads/profile-images/${file.filename}`;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/profile-images/${file.filename}`;
     
     // Update profile image in database
     await this.databaseService.updateExpertProfile(expertId, {
@@ -222,7 +228,8 @@ export class ExpertService {
       throw new BadRequestException('No file uploaded');
     }
 
-    const fileUrl = `http://localhost:3000/uploads/intro-videos/${file.filename}`;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/intro-videos/${file.filename}`;
     
     // Update intro video in database
     await this.databaseService.updateExpertProfile(expertId, {
@@ -245,7 +252,8 @@ export class ExpertService {
       throw new BadRequestException('Title and category are required');
     }
 
-    const fileUrl = `http://localhost:3000/uploads/verification-documents/${file.filename}`;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/verification-documents/${file.filename}`;
     
     // Get existing documents
     const expertData = await this.databaseService.findExpertById(expertId);

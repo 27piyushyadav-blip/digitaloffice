@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 
 @Injectable()
 export class DirectoryService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService,
+  ) {}
 
   private mapExpertToPublicProfile(item: any) {
     const { expert, expert_profile } = item;
@@ -11,7 +15,8 @@ export class DirectoryService {
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
       if (url.startsWith('http')) return url;
-      return `http://localhost:3000${url}`;
+      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+      return `${baseUrl}${url}`;
     };
 
     // Calculate starting price
@@ -67,7 +72,7 @@ export class DirectoryService {
     return {
       status: 'success',
       data: {
-        experts: rawExperts.map(this.mapExpertToPublicProfile),
+        experts: rawExperts.map((item) => this.mapExpertToPublicProfile(item)),
         total: rawExperts.length,
         hasMore: false,
       }
@@ -88,7 +93,8 @@ export class DirectoryService {
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
       if (url.startsWith('http')) return url;
-      return `http://localhost:3000${url}`;
+      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+      return `${baseUrl}${url}`;
     };
 
     return {
@@ -150,7 +156,7 @@ export class DirectoryService {
     
     // Fetch affiliated experts
     const rawExperts = await this.databaseService.findOrganizationExperts(rawOrg.id);
-    const experts = rawExperts.map(this.mapExpertToPublicProfile);
+    const experts = rawExperts.map((item) => this.mapExpertToPublicProfile(item));
     
     return {
       status: 'success',

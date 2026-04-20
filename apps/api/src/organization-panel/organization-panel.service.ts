@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { expert, expertProfile, expertOrganizations, organisation, organizationProfile } from '@repo/database';
 import { eq, and } from 'drizzle-orm';
@@ -8,7 +9,10 @@ import { randomBytes } from 'crypto';
 // Force reload after database rebuild
 @Injectable()
 export class OrganizationPanelService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService,
+  ) {}
 
   // Organization Profile APIs
   async getProfile(organizationId: string) {
@@ -17,7 +21,8 @@ export class OrganizationPanelService {
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
       if (url.startsWith('http')) return url;
-      return `http://localhost:3000${url}`;
+      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+      return `${baseUrl}${url}`;
     };
     
     const changes = await this.databaseService.findLatestProfileChanges(organizationId);
@@ -160,7 +165,8 @@ export class OrganizationPanelService {
 
   async uploadLogo(organizationId: string, file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
-    const fileUrl = `http://localhost:3000/uploads/organization-logos/${file.filename}`;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-logos/${file.filename}`;
     
     const existingOrg = await this.databaseService.findOrganizationById(organizationId);
     
@@ -184,7 +190,8 @@ export class OrganizationPanelService {
 
   async uploadCoverImage(organizationId: string, file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
-    const fileUrl = `http://localhost:3000/uploads/organization-covers/${file.filename}`;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-covers/${file.filename}`;
     
     const existingOrg = await this.databaseService.findOrganizationById(organizationId);
     
@@ -208,7 +215,8 @@ export class OrganizationPanelService {
 
   async uploadIntroVideo(organizationId: string, file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
-    const fileUrl = `http://localhost:3000/uploads/organization-videos/${file.filename}`;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-videos/${file.filename}`;
     
     const existingOrg = await this.databaseService.findOrganizationById(organizationId);
     
@@ -233,7 +241,8 @@ export class OrganizationPanelService {
   async uploadDocuments(organizationId: string, file: Express.Multer.File, title: string, category: string) {
     if (!file) throw new BadRequestException('No file uploaded');
     if (!title || !category) throw new BadRequestException('Title and category are required');
-    const fileUrl = `http://localhost:3000/uploads/organization-docs/${file.filename}`;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-docs/${file.filename}`;
     
     const existingOrg = await this.databaseService.findOrganizationById(organizationId);
     

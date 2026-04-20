@@ -1,14 +1,19 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService,
+  ) {}
 
   private toFullUrl(url: string | null) {
     if (!url) return null;
     if (url.startsWith('http')) return url;
-    return `http://localhost:3000${url}`;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    return `${baseUrl}${url}`;
   }
 
   // Get user profile
@@ -59,7 +64,8 @@ export class UsersService {
       throw new BadRequestException('No file uploaded');
     }
 
-    const fileUrl = `http://localhost:3000/uploads/profiles/${file.filename}`;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/profiles/${file.filename}`;
     
     // Update profile image in database
     await this.databaseService.updateClientProfile(userId, {
