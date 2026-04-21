@@ -89,7 +89,9 @@ export class OrganizationPanelService {
       phoneNumber: 'Phone Number',
       foundedYear: 'Founded Year',
       licenseNumber: 'License Number',
-      taxIdNumber: 'Tax ID Number',
+      taxIdNumber: 'ABN Number',
+      bankName: 'Bank Name',
+      bsbCode: 'BSB Code',
       bookingPolicy: 'Booking Policy',
       cancellationWindowHours: 'Cancellation Window',
     };
