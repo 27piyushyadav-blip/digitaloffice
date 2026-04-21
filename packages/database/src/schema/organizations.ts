@@ -50,9 +50,11 @@ export const organizationProfile = pgTable("organization_profile", {
   bookingPolicy: text("booking_policy"),
   cancellationWindowHours: integer("cancellation_window_hours"),
   bankDetails: json("bank_details").$type<{
+    bankName?: string;
     accountName: string;
     accountNumber: string;
-    ifscCode: string;
+    ifscCode?: string;
+    bsbCode?: string;
   }>(),
   workingHours: text("working_hours"),
   tags: json("tags").$type<string[]>(),
