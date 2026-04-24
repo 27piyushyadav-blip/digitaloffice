@@ -20,6 +20,7 @@ import { ChatModule } from "./chat/chat.module";
 import { OrganizationPanelModule } from "./organization-panel/organization-panel.module";
 import { AdminPanelModule } from "./admin-panel/admin-panel.module";
 import { DirectoryModule } from "./directory/directory.module";
+import { OffersModule } from "./offers/offers.module";
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { DirectoryModule } from "./directory/directory.module";
     PaymentsModule,
     ReviewsModule,
     ChatModule,
+    OffersModule,
     OrganizationPanelModule,
     AdminPanelModule,
     DirectoryModule,

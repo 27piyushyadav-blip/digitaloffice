@@ -6,7 +6,13 @@ import {
   UseGuards,
   Param,
   Query,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
 import { ChatService } from './chat.service';
 import { AtGuard } from '../auth/guards/at.guard';
 import { GetCurrentUserId } from '../common/decorators';
@@ -44,6 +50,63 @@ export class ChatController {
     @Body() messageData: any,
   ) {
     return this.chatService.sendMessage(userId, conversationId, messageData);
+  }
+
+  // Send offer (organization)
+  @Post('/:conversationId/send-offer')
+  async sendOffer(
+    @GetCurrentUserId() userId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() data: any,
+  ) {
+    return this.chatService.sendOffer(userId, conversationId, data);
+  }
+
+  // Upload chat media
+  @Post('/upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/chat',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        const allowedTypes = [
+          'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+          'video/mp4', 'video/quicktime', 'video/x-msvideo',
+          'audio/mpeg', 'audio/wav', 'audio/webm', 'audio/ogg'
+        ];
+        if (!allowedTypes.includes(file.mimetype)) {
+          return cb(new BadRequestException('Invalid file type'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB
+      },
+    }),
+  )
+  async uploadMedia(
+    @GetCurrentUserId() userId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    
+    // Convert to full URL
+    const fileUrl = `${process.env.APP_URL || 'http://localhost:3000'}/uploads/chat/${file.filename}`;
+    
+    return {
+      fileUrl,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+    };
   }
 
   // Start expert conversation

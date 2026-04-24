@@ -1,6 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { DatabaseClient, expert, expertProfile, profileChanges, client, conversations, messages, organizationProfile, organisation, expertOrganizations } from '@repo/database';
+import {
+  DatabaseClient,
+  expert,
+  expertProfile,
+  profileChanges,
+  client,
+  conversations,
+  messages,
+  organizationProfile,
+  organisation,
+  expertOrganizations,
+  organizationServices,
+  organizationServiceCategories,
+  offers,
+  offerItems,
+} from '@repo/database';
 import { eq, and, desc, or, sql, isNull } from 'drizzle-orm';
 
 @Injectable()
@@ -206,6 +221,180 @@ export class DatabaseService {
       };
     }
     return org;
+  }
+
+  async ensureOrganizationProfile(userId: string) {
+    const [existing] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.userId, userId));
+    if (existing) return existing;
+
+    const [account] = await this.db.select().from(organisation).where(eq(organisation.id, userId));
+    if (!account) return null;
+
+    const [inserted] = await this.db
+      .insert(organizationProfile)
+      .values({
+        userId: userId,
+        name: account.name,
+        officialEmail: account.email || null,
+        logo: account.image || null,
+        logoUrl: account.image || null,
+        offeredServiceTypes: [],
+        operatingHours: [],
+        tags: [],
+        documents: [],
+      })
+      .returning();
+
+    return inserted || null;
+  }
+
+  async listOrganizationServices(organizationUserId: string) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return [];
+
+    return await this.db
+      .select()
+      .from(organizationServices)
+      .where(eq(organizationServices.organizationId, org.id))
+      .orderBy(desc(organizationServices.updatedAt));
+  }
+
+  async createOrganizationService(organizationUserId: string, data: any) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+
+    const [created] = await this.db
+      .insert(organizationServices)
+      .values({
+        organizationId: org.id,
+        categoryId: data.categoryId || null,
+        name: data.name,
+        basePrice: String(data.basePrice),
+        discountType: data.discountType || null,
+        discountValue: data.discountValue !== undefined && data.discountValue !== null ? String(data.discountValue) : null,
+        durationMinutes: data.durationMinutes ?? null,
+        imageUrl: data.imageUrl ?? null,
+        isActive: data.isActive ?? true,
+      })
+      .returning();
+
+    return created || null;
+  }
+
+  async updateOrganizationService(organizationUserId: string, serviceId: string, data: any) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+
+    const [updated] = await this.db
+      .update(organizationServices)
+      .set({
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.basePrice !== undefined ? { basePrice: String(data.basePrice) } : {}),
+        ...(data.discountType !== undefined ? { discountType: data.discountType } : {}),
+        ...(data.discountValue !== undefined ? { discountValue: data.discountValue === null ? null : String(data.discountValue) } : {}),
+        ...(data.durationMinutes !== undefined ? { durationMinutes: data.durationMinutes } : {}),
+        ...(data.imageUrl !== undefined ? { imageUrl: data.imageUrl } : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+        ...(data.categoryId !== undefined ? { categoryId: data.categoryId } : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(organizationServices.id, serviceId), eq(organizationServices.organizationId, org.id)))
+      .returning();
+
+    return updated || null;
+  }
+
+  async deleteOrganizationService(organizationUserId: string, serviceId: string) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return false;
+
+    const deleted = await this.db
+      .delete(organizationServices)
+      .where(and(eq(organizationServices.id, serviceId), eq(organizationServices.organizationId, org.id)))
+      .returning();
+
+    return deleted.length > 0;
+  }
+
+  async createOffer(data: {
+    conversationId: string;
+    organizationProfileId: string;
+    clientId: string;
+    currency?: string;
+    subtotal: string;
+    discountTotal: string;
+    total: string;
+  }) {
+    const [created] = await this.db
+      .insert(offers)
+      .values({
+        conversationId: data.conversationId,
+        organizationId: data.organizationProfileId,
+        clientId: data.clientId,
+        currency: data.currency || 'USD',
+        subtotal: data.subtotal,
+        discountTotal: data.discountTotal,
+        total: data.total,
+        status: 'sent',
+      })
+      .returning();
+    return created || null;
+  }
+
+  async createOfferItems(data: {
+    offerId: string;
+    items: Array<{
+      serviceId?: string | null;
+      nameSnapshot: string;
+      basePriceSnapshot: string;
+      discountTypeSnapshot?: 'percent' | 'fixed' | null;
+      discountValueSnapshot?: string | null;
+      finalPriceSnapshot: string;
+      quantity: number;
+    }>;
+  }) {
+    if (data.items.length === 0) return [];
+    const inserted = await this.db
+      .insert(offerItems)
+      .values(
+        data.items.map((i) => ({
+          offerId: data.offerId,
+          serviceId: i.serviceId || null,
+          nameSnapshot: i.nameSnapshot,
+          basePriceSnapshot: i.basePriceSnapshot,
+          discountTypeSnapshot: i.discountTypeSnapshot || null,
+          discountValueSnapshot: i.discountValueSnapshot || null,
+          finalPriceSnapshot: i.finalPriceSnapshot,
+          quantity: i.quantity,
+        })),
+      )
+      .returning();
+    return inserted;
+  }
+
+  async getOfferWithItems(offerId: string) {
+    const [offer] = await this.db.select().from(offers).where(eq(offers.id, offerId));
+    if (!offer) return null;
+    const items = await this.db.select().from(offerItems).where(eq(offerItems.offerId, offerId));
+    return { offer, items };
+  }
+
+  async acceptOffer(offerId: string) {
+    const [updated] = await this.db
+      .update(offers)
+      .set({ status: 'accepted', acceptedAt: new Date(), updatedAt: new Date() })
+      .where(eq(offers.id, offerId))
+      .returning();
+    return updated || null;
+  }
+
+  async markOfferPaid(offerId: string) {
+    const [updated] = await this.db
+      .update(offers)
+      .set({ status: 'paid', paidAt: new Date(), updatedAt: new Date() })
+      .where(eq(offers.id, offerId))
+      .returning();
+    return updated || null;
   }
 
   async findOrganizationBySubdomain(subdomain: string) {
@@ -529,7 +718,7 @@ export class DatabaseService {
       .select()
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
-      .orderBy(messages.createdAt)
+      .orderBy(desc(messages.createdAt))
       .limit(limit)
       .offset(offset);
 
@@ -541,13 +730,14 @@ export class DatabaseService {
     const total = Number(totalResult[0]?.count || 0);
 
     return {
-      messages: msgs.map(m => ({
+      messages: msgs.reverse().map(m => ({
         _id: m.id,
         conversationId: m.conversationId,
         sender: m.senderId,
         senderModel: m.senderType === 'client' ? 'User' : 'Expert',
         content: m.content,
         contentType: m.messageType,
+        payload: (m as any).payload || null,
         createdAt: m.createdAt,
         readBy: m.isRead ? [m.senderId, m.recipientId] : [m.senderId],
         status: 'sent',
@@ -572,6 +762,7 @@ export class DatabaseService {
     recipientId: string;
     recipientType: string;
     messageType?: string;
+    payload?: Record<string, any> | null;
   }) {
     const [newMsg] = await this.db
       .insert(messages)
@@ -583,6 +774,7 @@ export class DatabaseService {
         recipientId: data.recipientId,
         recipientType: data.recipientType,
         messageType: data.messageType || 'text',
+        payload: data.payload || null,
       })
       .returning();
 
@@ -599,6 +791,7 @@ export class DatabaseService {
       senderModel: newMsg.senderType === 'client' ? 'User' : 'Expert',
       content: newMsg.content,
       contentType: newMsg.messageType,
+      payload: (newMsg as any).payload || null,
       createdAt: newMsg.createdAt,
       readBy: [newMsg.senderId],
       status: 'sent',

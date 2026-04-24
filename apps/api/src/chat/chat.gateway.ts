@@ -16,7 +16,7 @@ import { JwtService } from '@nestjs/jwt';
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
-  userType?: 'client' | 'expert' | 'organization';
+  userType?: 'client' | 'expert' | 'organization' | 'organisation';
   organizationId?: string;
 }
 
@@ -45,7 +45,29 @@ export class ChatGateway
     // Subscribe to messages from ChatService (REST API initiated)
     this.chatService.message$.subscribe((message) => {
       this.logger.log(`🔥 Broadcasting message via WebSocket: ${message.content}`);
+      // 1. Emit to the conversation room for real-time chat view update
       this.server.to(`conversation_${message.conversationId}`).emit('new-message', message);
+      
+      // 2. Emit to the recipient's personal room for sidebar/unread count updates
+      if (message.recipientId) {
+        this.server.to(`user_${message.recipientId}`).emit('new-message', message);
+      }
+
+      // 3. Emit to the organization's room so the dashboard updates
+      if (message.organizationId) {
+        this.server.to(`org_${message.organizationId}`).emit('new-message', message);
+      }
+    });
+
+    // Subscribe to read events from ChatService (REST API initiated)
+    this.chatService.read$.subscribe((data) => {
+      this.logger.log(`🔥 Broadcasting read event for conversation: ${data.conversationId}`);
+      this.server.to(`conversation_${data.conversationId}`).emit('messages-read', data);
+      
+      // Also emit to organization room
+      if (data.organizationId) {
+        this.server.to(`org_${data.organizationId}`).emit('messages-read', data);
+      }
     });
   }
 
@@ -58,10 +80,22 @@ export class ChatGateway
         const userInfo = await this.validateToken(token);
         client.userId = userInfo.userId;
         client.userType = userInfo.userType;
-        client.organizationId = userInfo.organizationId;
+        
+        // Handle organization ID assignment (role might be 'organisation' or 'organization')
+        if (userInfo.organizationId) {
+          client.organizationId = userInfo.organizationId;
+        } else if (client.userType === 'organisation' || client.userType === 'organization') {
+          client.organizationId = client.userId;
+        }
         
         // Join user to their personal room
         client.join(`user_${client.userId}`);
+
+        // If organization user, join organization room
+        if (client.organizationId) {
+          client.join(`org_${client.organizationId}`);
+          this.logger.log(`User ${client.userId} joined organization room org_${client.organizationId}`);
+        }
         
         this.logger.log(`User ${client.userId} (${client.userType}) authenticated`);
       } catch (error) {
@@ -158,13 +192,8 @@ export class ChatGateway
 
       this.logger.log(`🔥 Message saved: ${JSON.stringify(savedMessage)}`);
 
-      // Emit to the conversation room (excluding sender to prevent echo)
-      this.server.to(`conversation_${data.conversationId}`).except(client.id).emit('new-message', savedMessage);
-      
-      // Emit confirmation to sender with status update
-      client.emit('message-sent', savedMessage);
-
-      this.logger.log(`🔥 Message emitted to conversation room and sender`);
+      // No need to emit here as the ChatService subscription handles it globally
+      // (This prevents double-sending and ensures organization-wide delivery)
 
     } catch (error) {
       this.logger.error(`Error sending message: ${error.message}`);
@@ -213,7 +242,7 @@ export class ChatGateway
 
   private async validateToken(token: string): Promise<{
     userId: string;
-    userType: 'client' | 'expert' | 'organization';
+    userType: 'client' | 'expert' | 'organization' | 'organisation';
     organizationId?: string;
   }> {
     try {

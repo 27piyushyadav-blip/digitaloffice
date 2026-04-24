@@ -18,13 +18,6 @@ export class OrganizationPanelService {
   async getProfile(organizationId: string) {
     const org = await this.databaseService.findOrganizationById(organizationId);
     if (!org) throw new BadRequestException('Organization not found');
-    const toFullUrl = (url: string | null) => {
-      if (!url) return null;
-      if (url.startsWith('http')) return url;
-      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
-      return `${baseUrl}${url}`;
-    };
-    
     const changes = await this.databaseService.findLatestProfileChanges(organizationId);
     const fieldStatuses: Record<string, { value: any; status: string }> = {};
     if (changes) {
@@ -43,11 +36,18 @@ export class OrganizationPanelService {
 
     return {
       ...org,
-      logo: toFullUrl(org.logo),
-      introVideo: toFullUrl(org.introVideo),
+      logo: this.toFullUrl(org.logo),
+      introVideo: this.toFullUrl(org.introVideo),
       documents: org.documents || [],
       fieldStatuses,
     };
+  }
+
+  private toFullUrl(url: string | null) {
+    if (!url) return null;
+    if (url.startsWith('http')) return url;
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    return `${baseUrl}${url}`;
   }
 
   async updateProfile(organizationId: string, profileData: any) {
@@ -275,6 +275,30 @@ export class OrganizationPanelService {
     };
   }
 
+  async uploadExpertAvatar(organizationId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/profile-images/${file.filename}`;
+    
+    return {
+      message: 'Expert avatar uploaded successfully',
+      fileUrl,
+      status: 'SUCCESS',
+    };
+  }
+
+  async uploadExpertVideo(organizationId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/intro-videos/${file.filename}`;
+    
+    return {
+      message: 'Expert video uploaded successfully',
+      fileUrl,
+      status: 'SUCCESS',
+    };
+  }
+
   // Verification APIs
   async getVerificationStatus(organizationId: string) {
     const org = await this.databaseService.findOrganizationById(organizationId);
@@ -314,6 +338,7 @@ export class OrganizationPanelService {
       return {
         experts: experts.map(e => ({
           ...e,
+          avatar: this.toFullUrl(e.avatar),
           id: e.id,
           status: e.status === 'LIVE' ? 'active' : 'hidden',
           joinedAt: e.createdAt,
@@ -405,27 +430,185 @@ export class OrganizationPanelService {
   }
 
   async getExpertDetails(organizationId: string, expertId: string) {
-    // TODO: Implement actual database query
+    const org = await this.getProfile(organizationId);
+    const organizationProfileId = org.id;
+
+    const [details] = await this.databaseService.db
+      .select({
+        id: expert.id,
+        name: expert.name,
+        email: expert.email,
+        phone: (expertProfile as any).phone || null,
+        username: expert.username,
+        bio: expertProfile.bio,
+        specialization: expertProfile.specialization,
+        avatar: expertProfile.profileImage,
+        videoUrl: expertProfile.introVideo,
+        status: expertProfile.verificationStatus,
+        joinedAt: expert.createdAt,
+        availability: expertProfile.availability,
+        services: expertProfile.services,
+      })
+      .from(expert)
+      .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
+      .innerJoin(expertOrganizations, eq(expert.id, expertOrganizations.expertId))
+      .where(and(
+        eq(expert.id, expertId),
+        eq(expertOrganizations.organizationId, organizationProfileId)
+      ));
+
+    if (!details) throw new BadRequestException('Expert not found or not linked to this organization');
+
     return {
-      id: expertId,
-      name: 'Dr. Sarah Johnson',
-      email: 'sarah.johnson@example.com',
-      phone: '+1 234-567-8900',
-      specialization: 'Business Consulting',
-      rating: 4.8,
-      totalBookings: 45,
-      revenue: 1250,
-      status: 'active',
-      joinedAt: new Date('2024-01-01'),
-      profileImage: '/avatars/sarah.jpg',
-      bio: 'Experienced business consultant with 10+ years helping companies grow.',
-      services: ['Business Consulting', 'Strategy Planning'],
-      availability: [
-        { day: 'Mon', time: '9AM - 5PM' },
-        { day: 'Wed', time: '9AM - 5PM' },
-        { day: 'Fri', time: '9AM - 5PM' },
-      ],
+      ...details,
+      status: details.status === 'LIVE' ? 'active' : 'hidden',
+      avatar: this.toFullUrl(details.avatar),
+      videoUrl: this.toFullUrl(details.videoUrl),
+      timings: (details.availability as any[] || []).map(a => ({
+        day: a.dayOfWeek?.substring(0, 3) || 'Day',
+        time: `${a.startTime} - ${a.endTime}`
+      })),
+      services: (details.services as any[] || []).map(s => s.name),
     };
+  }
+
+  async updateExpert(userId: string, expertId: string, data: any) {
+    const org = await this.getProfile(userId);
+    const organizationProfileId = org.id;
+
+    // Verify linkage
+    const link = await this.databaseService.db
+      .select()
+      .from(expertOrganizations)
+      .where(and(
+        eq(expertOrganizations.expertId, expertId),
+        eq(expertOrganizations.organizationId, organizationProfileId)
+      ));
+    
+    if (link.length === 0) throw new BadRequestException('Expert not linked to this organization');
+
+    const { name, username, email, bio, specialization, services } = data;
+
+    // Update Expert basic info
+    await this.databaseService.db
+      .update(expert)
+      .set({
+        name: name !== undefined ? name : undefined,
+        username: username !== undefined ? username : undefined,
+        email: email !== undefined ? email : undefined,
+      })
+      .where(eq(expert.id, expertId));
+
+    // Update Expert Profile info
+    await this.databaseService.db
+      .update(expertProfile)
+      .set({
+        bio: bio !== undefined ? bio : undefined,
+        specialization: specialization !== undefined ? specialization : undefined,
+        services: services !== undefined ? services : undefined,
+      })
+      .where(eq(expertProfile.userId, expertId));
+
+    return { message: 'Expert profile updated successfully' };
+  }
+
+  async updateExpertAvatar(userId: string, expertId: string, avatarUrl: string) {
+    const org = await this.getProfile(userId);
+    const organizationProfileId = org.id;
+
+    // Verify linkage
+    const link = await this.databaseService.db
+      .select()
+      .from(expertOrganizations)
+      .where(and(
+        eq(expertOrganizations.expertId, expertId),
+        eq(expertOrganizations.organizationId, organizationProfileId)
+      ));
+    
+    if (link.length === 0) throw new BadRequestException('Expert not linked to this organization');
+
+    await this.databaseService.db
+      .update(expertProfile)
+      .set({ profileImage: avatarUrl })
+      .where(eq(expertProfile.userId, expertId));
+
+    await this.databaseService.db
+      .update(expert)
+      .set({ image: avatarUrl })
+      .where(eq(expert.id, expertId));
+
+    return { message: 'Expert avatar updated successfully', avatarUrl };
+  }
+
+  async updateExpertVideo(userId: string, expertId: string, videoUrl: string) {
+    const org = await this.getProfile(userId);
+    const organizationProfileId = org.id;
+
+    // Verify linkage
+    const link = await this.databaseService.db
+      .select()
+      .from(expertOrganizations)
+      .where(and(
+        eq(expertOrganizations.expertId, expertId),
+        eq(expertOrganizations.organizationId, organizationProfileId)
+      ));
+    
+    if (link.length === 0) throw new BadRequestException('Expert not linked to this organization');
+
+    await this.databaseService.db
+      .update(expertProfile)
+      .set({ introVideo: videoUrl })
+      .where(eq(expertProfile.userId, expertId));
+
+    return { message: 'Expert video updated successfully', videoUrl };
+  }
+
+  async updateExpertTimings(userId: string, expertId: string, availability: any[]) {
+    const org = await this.getProfile(userId);
+    const organizationProfileId = org.id;
+
+    // Verify linkage
+    const link = await this.databaseService.db
+      .select()
+      .from(expertOrganizations)
+      .where(and(
+        eq(expertOrganizations.expertId, expertId),
+        eq(expertOrganizations.organizationId, organizationProfileId)
+      ));
+    
+    if (link.length === 0) throw new BadRequestException('Expert not linked to this organization');
+
+    await this.databaseService.db
+      .update(expertProfile)
+      .set({ availability })
+      .where(eq(expertProfile.userId, expertId));
+
+    return { message: 'Expert timings updated successfully' };
+  }
+
+  async updateExpertStatus(userId: string, expertId: string, status: string) {
+    const org = await this.getProfile(userId);
+    const organizationProfileId = org.id;
+
+    // Verify linkage
+    const link = await this.databaseService.db
+      .select()
+      .from(expertOrganizations)
+      .where(and(
+        eq(expertOrganizations.expertId, expertId),
+        eq(expertOrganizations.organizationId, organizationProfileId)
+      ));
+    
+    if (link.length === 0) throw new BadRequestException('Expert not linked to this organization');
+
+    const dbStatus = status === 'active' ? 'LIVE' : 'ONBOARDING';
+
+    await this.databaseService.db
+      .update(expertProfile)
+      .set({ verificationStatus: dbStatus })
+      .where(eq(expertProfile.userId, expertId));
+
+    return { message: `Expert status updated to ${status}` };
   }
 
   async removeExpert(organizationId: string, expertId: string) {
@@ -518,63 +701,32 @@ export class OrganizationPanelService {
 
   // Services Management APIs
   async getServices(organizationId: string) {
-    // TODO: Implement actual database query
+    const services = await this.databaseService.listOrganizationServices(organizationId);
     return {
-      services: [
-        {
-          id: 'service_1',
-          name: 'Legal Consultation',
-          price: 2000,
-          duration: 60,
-          mode: ['online', 'offline'],
-          description: 'Professional legal advice and consultation',
-          isActive: true,
-        },
-        {
-          id: 'service_2',
-          name: 'Tax Filing Help',
-          price: 1500,
-          duration: 45,
-          mode: ['online'],
-          description: 'Assistance with tax filing and documentation',
-          isActive: true,
-        },
-      ],
-      total: 2,
-      active: 2,
+      services,
+      total: services.length,
+      active: services.filter((s: any) => s.isActive).length,
     };
   }
 
   async createService(organizationId: string, serviceData: any) {
-    // TODO: Implement actual database insert
-    return {
-      message: 'Service created successfully',
-      serviceId: 'service_' + Date.now(),
-      organizationId,
-      ...serviceData,
-      createdAt: new Date(),
-    };
+    if (!serviceData?.name) throw new BadRequestException('Service name is required');
+    if (serviceData?.basePrice === undefined || serviceData?.basePrice === null) throw new BadRequestException('Service basePrice is required');
+    const created = await this.databaseService.createOrganizationService(organizationId, serviceData);
+    if (!created) throw new BadRequestException('Unable to create service');
+    return { message: 'Service created successfully', service: created };
   }
 
   async updateService(organizationId: string, serviceId: string, serviceData: any) {
-    // TODO: Implement actual database update
-    return {
-      message: 'Service updated successfully',
-      serviceId,
-      organizationId,
-      ...serviceData,
-      updatedAt: new Date(),
-    };
+    const updated = await this.databaseService.updateOrganizationService(organizationId, serviceId, serviceData || {});
+    if (!updated) throw new BadRequestException('Service not found');
+    return { message: 'Service updated successfully', service: updated };
   }
 
   async deleteService(organizationId: string, serviceId: string) {
-    // TODO: Implement actual database update
-    return {
-      message: 'Service deleted successfully',
-      serviceId,
-      organizationId,
-      deletedAt: new Date(),
-    };
+    const ok = await this.databaseService.deleteOrganizationService(organizationId, serviceId);
+    if (!ok) throw new BadRequestException('Service not found');
+    return { message: 'Service deleted successfully', serviceId };
   }
 
   // Booking Management APIs

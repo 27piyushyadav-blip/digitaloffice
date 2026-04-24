@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   UseGuards,
@@ -199,6 +200,113 @@ export class OrganizationPanelController {
     return this.organizationPanelService.removeExpert(organizationId, expertId);
   }
 
+  @Post('/experts/upload-avatar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/profile-images',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+          return cb(new BadRequestException('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB
+      },
+    }),
+  )
+  async uploadExpertAvatar(
+    @GetCurrentUserId() organizationId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.organizationPanelService.uploadExpertAvatar(organizationId, file);
+  }
+
+  @Post('/experts/upload-video')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/intro-videos',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(mp4|avi|mov|wmv)$/)) {
+          return cb(new BadRequestException('Only video files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB
+      },
+    }),
+  )
+  async uploadExpertVideo(
+    @GetCurrentUserId() organizationId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.organizationPanelService.uploadExpertVideo(organizationId, file);
+  }
+
+  @Put('/experts/:expertId')
+  async updateExpert(
+    @GetCurrentUserId() organizationId: string,
+    @Param('expertId') expertId: string,
+    @Body() data: any,
+  ) {
+    return this.organizationPanelService.updateExpert(organizationId, expertId, data);
+  }
+
+  @Patch('/experts/:expertId/avatar')
+  async updateExpertAvatar(
+    @GetCurrentUserId() organizationId: string,
+    @Param('expertId') expertId: string,
+    @Body('avatarUrl') avatarUrl: string,
+  ) {
+    return this.organizationPanelService.updateExpertAvatar(organizationId, expertId, avatarUrl);
+  }
+
+  @Patch('/experts/:expertId/video')
+  async updateExpertVideoUrl(
+    @GetCurrentUserId() organizationId: string,
+    @Param('expertId') expertId: string,
+    @Body('videoUrl') videoUrl: string,
+  ) {
+    return this.organizationPanelService.updateExpertVideo(organizationId, expertId, videoUrl);
+  }
+
+  @Patch('/experts/:expertId/timings')
+  async updateExpertTimings(
+    @GetCurrentUserId() organizationId: string,
+    @Param('expertId') expertId: string,
+    @Body('availability') availability: any[],
+  ) {
+    return this.organizationPanelService.updateExpertTimings(organizationId, expertId, availability);
+  }
+
+  @Patch('/experts/:expertId/status')
+  async updateExpertStatus(
+    @GetCurrentUserId() organizationId: string,
+    @Param('expertId') expertId: string,
+    @Body('status') status: string,
+  ) {
+    return this.organizationPanelService.updateExpertStatus(organizationId, expertId, status);
+  }
+
   @Post('/experts')
   async createExpert(
     @GetCurrentUserId() organizationId: string,
@@ -275,6 +383,40 @@ export class OrganizationPanelController {
     @Param('serviceId') serviceId: string,
   ) {
     return this.organizationPanelService.deleteService(organizationId, serviceId);
+  }
+
+  @Post('/services/upload-image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-services',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
+          return cb(new BadRequestException('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB
+      },
+    }),
+  )
+  async uploadServiceImage(
+    @GetCurrentUserId() organizationId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-services/${file.filename}`;
+    return { imageUrl: fileUrl };
   }
 
   // Booking Management APIs
