@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean, varchar, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, boolean, varchar, index, json } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { client, expert } from './users';
 import { organizationProfile } from './organizations';
@@ -29,7 +29,8 @@ export const messages = pgTable('messages', {
   recipientId: uuid('recipient_id').notNull(),
   recipientType: varchar('recipient_type', { enum: ['client', 'expert', 'organization'] }).notNull(),
   content: text('content').notNull(),
-  messageType: varchar('message_type', { enum: ['text', 'file', 'image', 'system'] }).default('text').notNull(),
+  messageType: varchar('message_type', { enum: ['text', 'file', 'image', 'system', 'offer'] }).default('text').notNull(),
+  payload: json('payload').$type<Record<string, any> | null>(),
   fileUrl: text('file_url'),
   fileName: text('file_name'),
   isRead: boolean('is_read').default(false).notNull(),
