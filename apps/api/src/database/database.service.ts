@@ -15,6 +15,7 @@ import {
   organizationServiceCategories,
   offers,
   offerItems,
+  bookings,
 } from '@repo/database';
 import { eq, and, desc, or, sql, isNull } from 'drizzle-orm';
 
@@ -388,6 +389,15 @@ export class DatabaseService {
     return updated || null;
   }
 
+  async declineOffer(offerId: string) {
+    const [updated] = await this.db
+      .update(offers)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(eq(offers.id, offerId))
+      .returning();
+    return updated || null;
+  }
+
   async markOfferPaid(offerId: string) {
     const [updated] = await this.db
       .update(offers)
@@ -395,6 +405,43 @@ export class DatabaseService {
       .where(eq(offers.id, offerId))
       .returning();
     return updated || null;
+  }
+
+  async saveOfferBookingMetadata(offerId: string, metadata: any) {
+    const [updated] = await this.db
+      .update(offers)
+      .set({ bookingMetadata: metadata, updatedAt: new Date() })
+      .where(eq(offers.id, offerId))
+      .returning();
+    return updated || null;
+  }
+
+  async createBooking(data: {
+    clientId: string;
+    expertId: string;
+    organizationId?: string;
+    service: string;
+    consultationType: string;
+    scheduledDate: Date;
+    duration: number;
+    amount: string;
+  }) {
+    const [inserted] = await this.db
+      .insert(bookings)
+      .values({
+        clientId: data.clientId,
+        expertId: data.expertId,
+        organizationId: data.organizationId || null,
+        service: data.service,
+        consultationType: data.consultationType,
+        scheduledDate: data.scheduledDate,
+        duration: data.duration,
+        amount: data.amount,
+        status: 'confirmed',
+        paymentStatus: 'paid',
+      })
+      .returning();
+    return inserted || null;
   }
 
   async findOrganizationBySubdomain(subdomain: string) {
@@ -592,9 +639,13 @@ export class DatabaseService {
 
       // Get other user's profile image (for expert, check expertProfile too)
       let profilePicture = otherUser?.image || null;
+      let epData: any = null;
       if (userType === 'client' && otherUser) {
         const [ep] = await this.db.select().from(expertProfile).where(eq(expertProfile.userId, otherUser.id));
-        if (ep?.profileImage) profilePicture = ep.profileImage;
+        if (ep) {
+            epData = ep;
+            if (ep.profileImage) profilePicture = ep.profileImage;
+        }
       }
 
       // Get last message
@@ -628,8 +679,11 @@ export class DatabaseService {
         expertId: convo.expertId, // Add expertId for completeness
         otherUser: otherUser ? {
           _id: otherUser.id,
+          id: otherUser.id,
           name: otherUser.name,
           profilePicture: profilePicture,
+          availability: epData?.availability || null,
+          services: epData?.services || null,
           isOnline: false,
           lastSeen: null,
         } : null,
@@ -715,8 +769,23 @@ export class DatabaseService {
     const offset = (page - 1) * limit;
 
     const msgs = await this.db
-      .select()
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        senderId: messages.senderId,
+        senderType: messages.senderType,
+        recipientId: messages.recipientId,
+        content: messages.content,
+        messageType: messages.messageType,
+        payload: messages.payload,
+        createdAt: messages.createdAt,
+        isRead: messages.isRead,
+        isDeleted: messages.isDeleted,
+        offerStatus: offers.status,
+        bookingMetadata: offers.bookingMetadata,
+      })
       .from(messages)
+      .leftJoin(offers, sql`${messages.payload}->>'id' = ${offers.id}::text`)
       .where(eq(messages.conversationId, conversationId))
       .orderBy(desc(messages.createdAt))
       .limit(limit)
@@ -730,21 +799,29 @@ export class DatabaseService {
     const total = Number(totalResult[0]?.count || 0);
 
     return {
-      messages: msgs.reverse().map(m => ({
-        _id: m.id,
-        conversationId: m.conversationId,
-        sender: m.senderId,
-        senderModel: m.senderType === 'client' ? 'User' : 'Expert',
-        content: m.content,
-        contentType: m.messageType,
-        payload: (m as any).payload || null,
-        createdAt: m.createdAt,
-        readBy: m.isRead ? [m.senderId, m.recipientId] : [m.senderId],
-        status: 'sent',
-        isDeleted: m.isDeleted,
-        recipientId: m.recipientId,
-        senderType: m.senderType,
-      })),
+      messages: msgs.reverse().map(m => {
+        const payload = m.payload || null;
+        if (m.messageType === 'offer' && payload && m.offerStatus) {
+            payload.status = m.offerStatus;
+            payload.bookingMetadata = m.bookingMetadata || null;
+        }
+        
+        return {
+          _id: m.id,
+          conversationId: m.conversationId,
+          sender: m.senderId,
+          senderModel: m.senderType === 'client' ? 'User' : 'Expert',
+          content: m.content,
+          contentType: m.messageType,
+          payload,
+          createdAt: m.createdAt,
+          readBy: m.isRead ? [m.senderId, m.recipientId] : [m.senderId],
+          status: 'sent',
+          isDeleted: m.isDeleted,
+          recipientId: m.recipientId,
+          senderType: m.senderType,
+        };
+      }),
       pagination: {
         page,
         limit,

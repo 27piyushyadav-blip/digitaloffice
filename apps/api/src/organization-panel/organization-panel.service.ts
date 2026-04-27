@@ -325,10 +325,18 @@ export class OrganizationPanelService {
           email: expert.email,
           username: expert.username,
           avatar: expertProfile.profileImage,
+          bio: expertProfile.bio,
           specialization: expertProfile.specialization,
+          experience: expertProfile.experience,
+          consultationFee: expertProfile.consultationFee,
           status: expertProfile.verificationStatus,
           createdAt: expert.createdAt,
           availability: expertProfile.availability,
+          languages: expertProfile.languages,
+          education: expertProfile.education,
+          workHistory: expertProfile.workHistory,
+          services: expertProfile.services,
+          tags: expertProfile.tags,
         })
         .from(expertOrganizations)
         .innerJoin(expert, eq(expertOrganizations.expertId, expert.id))
@@ -348,7 +356,13 @@ export class OrganizationPanelService {
             day: a.dayOfWeek?.substring(0, 3) || 'Day',
             time: `${a.startTime} - ${a.endTime}`
           })),
-          services: [], 
+          services: e.services || [], 
+          experience: e.experience,
+          consultationFee: e.consultationFee,
+          languages: e.languages || [],
+          education: e.education || [],
+          workHistory: e.workHistory || [],
+          tags: e.tags || [],
         })),
         total: experts.length,
         active: experts.filter(e => e.status === 'LIVE').length,
@@ -442,12 +456,24 @@ export class OrganizationPanelService {
         username: expert.username,
         bio: expertProfile.bio,
         specialization: expertProfile.specialization,
+        experience: expertProfile.experience,
+        consultationFee: expertProfile.consultationFee,
         avatar: expertProfile.profileImage,
         videoUrl: expertProfile.introVideo,
         status: expertProfile.verificationStatus,
         joinedAt: expert.createdAt,
         availability: expertProfile.availability,
         services: expertProfile.services,
+        languages: expertProfile.languages,
+        education: expertProfile.education,
+        workHistory: expertProfile.workHistory,
+        socialLinks: expertProfile.socialLinks,
+        tags: expertProfile.tags,
+        documents: expertProfile.documents,
+        leaves: expertProfile.leaves,
+        timezone: expertProfile.timezone,
+        gender: expertProfile.gender,
+        location: expertProfile.location,
       })
       .from(expert)
       .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
@@ -468,7 +494,7 @@ export class OrganizationPanelService {
         day: a.dayOfWeek?.substring(0, 3) || 'Day',
         time: `${a.startTime} - ${a.endTime}`
       })),
-      services: (details.services as any[] || []).map(s => s.name),
+      services: (details.services as any[] || []).map(s => s.name || s),
     };
   }
 

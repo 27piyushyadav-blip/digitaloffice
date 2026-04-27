@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, decimal, boolean, timestamp, varchar, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, decimal, boolean, timestamp, varchar, index, json } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { organizationProfile } from "./organizations";
 import { conversations } from "./chat";
@@ -63,6 +63,13 @@ export const offers = pgTable(
     total: decimal("total", { precision: 10, scale: 2 }).default("0").notNull(),
     acceptedAt: timestamp("accepted_at"),
     paidAt: timestamp("paid_at"),
+    bookingMetadata: json("booking_metadata").$type<{
+      scheduledDate: string;
+      time: string;
+      timezone: string;
+      consultationType: "Video Call" | "Clinic Visit";
+      expertId: string;
+    } | null>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
   },

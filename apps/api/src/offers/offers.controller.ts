@@ -13,9 +13,18 @@ export class OffersController {
     return this.offersService.acceptOffer(userId, offerId);
   }
 
+  @Post('/:offerId/decline')
+  async decline(@GetCurrentUserId() userId: string, @Param('offerId') offerId: string) {
+    return this.offersService.declineOffer(userId, offerId);
+  }
+
   @Post('/:offerId/pay')
-  async pay(@GetCurrentUserId() userId: string, @Param('offerId') offerId: string) {
-    return this.offersService.payOffer(userId, offerId);
+  async pay(
+    @GetCurrentUserId() userId: string,
+    @Param('offerId') offerId: string,
+    @Body() bookingData?: any,
+  ) {
+    return this.offersService.payOffer(userId, offerId, bookingData);
   }
 
   // Temporary: allow manual mark-paid using current mocked payment flow

@@ -10,6 +10,9 @@ export class ChatService {
   private readonly readSubject = new Subject<any>();
   public readonly read$ = this.readSubject.asObservable();
 
+  private readonly offerSubject = new Subject<any>();
+  public readonly offer$ = this.offerSubject.asObservable();
+
   constructor(private readonly databaseService: DatabaseService) {}
 
   private calcFinalPrice(params: {
@@ -182,6 +185,7 @@ export class ChatService {
           discountValueSnapshot: discountValue === null ? null : discountValue.toFixed(2),
           finalPriceSnapshot: finalPrice.toFixed(2),
           quantity,
+          durationMinutes: svc.durationMinutes || 0,
           _calc: { base, discountAmount, finalPrice },
         };
       }
@@ -201,6 +205,7 @@ export class ChatService {
         discountValueSnapshot: discountValue === null ? null : discountValue.toFixed(2),
         finalPriceSnapshot: finalPrice.toFixed(2),
         quantity,
+        durationMinutes: Number(i.durationMinutes || 0),
         _calc: { base, discountAmount, finalPrice },
       };
     });
@@ -234,13 +239,33 @@ export class ChatService {
     });
 
     const payload = {
-      offerId: offer.id,
-      currency: offer.currency,
-      subtotal: offer.subtotal,
-      discountTotal: offer.discountTotal,
-      total: offer.total,
+      id: offer.id,
+      offerId: offer.id, // For backward compatibility with some panels
       status: offer.status,
-      items: savedItems,
+      currency: offer.currency,
+      subtotal: Number(offer.subtotal),
+      discountTotal: Number(offer.discountTotal),
+      total: Number(offer.total),
+      totals: {
+        subtotal: Number(offer.subtotal),
+        discountAmount: Number(offer.discountTotal),
+        total: Number(offer.total),
+      },
+      items: savedItems.map((it: any, idx: number) => ({
+        id: it.id,
+        serviceId: it.serviceId,
+        nameSnapshot: it.nameSnapshot,
+        basePriceSnapshot: Number(it.basePriceSnapshot),
+        priceSnapshot: Number(it.basePriceSnapshot),
+        discountSnapshot: it.discountTypeSnapshot ? {
+          type: it.discountTypeSnapshot,
+          value: Number(it.discountValueSnapshot),
+        } : null,
+        finalPriceSnapshot: Number(it.finalPriceSnapshot),
+        quantity: it.quantity,
+        durationMinutes: items[idx]?.durationMinutes || 0,
+      })),
+      expiresAt: null,
     };
 
     const savedMessage = await this.databaseService.createMessage({
@@ -256,5 +281,9 @@ export class ChatService {
 
     this.messageSubject.next({ ...savedMessage, organizationId: convo.organizationId || orgProfile.id });
     return { offerId: offer.id, message: savedMessage };
+  }
+
+  emitOfferUpdate(data: { conversationId: string; offerId: string; status: string; organizationId?: string }) {
+    this.offerSubject.next(data);
   }
 }

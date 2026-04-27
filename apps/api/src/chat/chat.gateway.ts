@@ -69,6 +69,17 @@ export class ChatGateway
         this.server.to(`org_${data.organizationId}`).emit('messages-read', data);
       }
     });
+
+    // Subscribe to offer updates from ChatService
+    this.chatService.offer$.subscribe((data) => {
+      this.logger.log(`🔥 Broadcasting offer update for offer: ${data.offerId}`);
+      this.server.to(`conversation_${data.conversationId}`).emit('offer-updated', data);
+      
+      // Also emit to organization room
+      if (data.organizationId) {
+        this.server.to(`org_${data.organizationId}`).emit('offer-updated', data);
+      }
+    });
   }
 
   async handleConnection(client: AuthenticatedSocket) {
