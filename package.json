@@ -2,6 +2,9 @@
   "name": "digitaloffices",
   "packageManager": "pnpm@10.30.0",
   "scripts": {
+    "build": "turbo run build",
+    "start": "pnpm --filter api start",
+
     "db:generate": "pnpm --filter @repo/database db:generate",
     "db:migrate": "pnpm --filter @repo/database db:push",
     "db:migrate:sql": "pnpm --filter @repo/database db:push",
