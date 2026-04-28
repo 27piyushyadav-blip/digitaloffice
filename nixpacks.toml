@@ -1,0 +1,8 @@
+[phases.install]
+cmds = ["pnpm i --no-frozen-lockfile"]
+
+[phases.build]
+cmds = ["npx turbo run build"]
+
+[start]
+cmd = "pnpm run start"
