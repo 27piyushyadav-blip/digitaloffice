@@ -30,6 +30,7 @@ export const expertProfile = pgTable("expert_profile", {
   
   // Additional profile fields
   timezone: text("timezone"),
+  phone: text("phone"),
   gender: text("gender"),
   location: text("location"),
   socialLinks: json("social_links").$type<Record<string, string>>(),

@@ -227,8 +227,9 @@ export class OrganizationPanelController {
   async uploadExpertAvatar(
     @GetCurrentUserId() organizationId: string,
     @UploadedFile() file: Express.Multer.File,
+    @Body('expertId') expertId?: string,
   ) {
-    return this.organizationPanelService.uploadExpertAvatar(organizationId, file);
+    return this.organizationPanelService.uploadExpertAvatar(organizationId, file, expertId);
   }
 
   @Post('/experts/upload-video')
@@ -258,8 +259,9 @@ export class OrganizationPanelController {
   async uploadExpertVideo(
     @GetCurrentUserId() organizationId: string,
     @UploadedFile() file: Express.Multer.File,
+    @Body('expertId') expertId?: string,
   ) {
-    return this.organizationPanelService.uploadExpertVideo(organizationId, file);
+    return this.organizationPanelService.uploadExpertVideo(organizationId, file, expertId);
   }
 
   @Put('/experts/:expertId')

@@ -275,10 +275,14 @@ export class OrganizationPanelService {
     };
   }
 
-  async uploadExpertAvatar(organizationId: string, file: Express.Multer.File) {
+  async uploadExpertAvatar(organizationId: string, file: Express.Multer.File, expertId?: string) {
     if (!file) throw new BadRequestException('No file uploaded');
     const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/profile-images/${file.filename}`;
+    
+    if (expertId) {
+      await this.updateExpertAvatar(organizationId, expertId, fileUrl);
+    }
     
     return {
       message: 'Expert avatar uploaded successfully',
@@ -287,10 +291,14 @@ export class OrganizationPanelService {
     };
   }
 
-  async uploadExpertVideo(organizationId: string, file: Express.Multer.File) {
+  async uploadExpertVideo(organizationId: string, file: Express.Multer.File, expertId?: string) {
     if (!file) throw new BadRequestException('No file uploaded');
     const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/intro-videos/${file.filename}`;
+    
+    if (expertId) {
+      await this.updateExpertVideo(organizationId, expertId, fileUrl);
+    }
     
     return {
       message: 'Expert video uploaded successfully',
@@ -388,6 +396,14 @@ export class OrganizationPanelService {
       .where(eq(expert.email, email));
     
     if (existing.length > 0) throw new ConflictException('An expert with this email already exists');
+    
+    // Check if username exists
+    const existingUsername = await this.databaseService.db
+      .select()
+      .from(expert)
+      .where(eq(expert.username, username || email.split('@')[0]));
+    
+    if (existingUsername.length > 0) throw new ConflictException('An expert with this username already exists');
 
     // 2. Create Expert Account
     const randomPass = randomBytes(16).toString('hex');
@@ -513,7 +529,12 @@ export class OrganizationPanelService {
     
     if (link.length === 0) throw new BadRequestException('Expert not linked to this organization');
 
-    const { name, username, email, bio, specialization, services } = data;
+    const { 
+      name, username, email, phone, bio, specialization, 
+      experience, consultationFee, languages, education, 
+      workHistory, socialLinks, tags, services, availability,
+      timezone, gender, location, leaves
+    } = data;
 
     // Update Expert basic info
     await this.databaseService.db
@@ -529,9 +550,22 @@ export class OrganizationPanelService {
     await this.databaseService.db
       .update(expertProfile)
       .set({
+        phone: phone !== undefined ? phone : undefined,
         bio: bio !== undefined ? bio : undefined,
         specialization: specialization !== undefined ? specialization : undefined,
+        experience: experience !== undefined ? Number(experience) : undefined,
+        consultationFee: consultationFee !== undefined ? String(consultationFee) : undefined,
+        languages: languages !== undefined ? languages : undefined,
+        education: education !== undefined ? education : undefined,
+        workHistory: workHistory !== undefined ? workHistory : undefined,
+        socialLinks: socialLinks !== undefined ? socialLinks : undefined,
+        tags: tags !== undefined ? tags : undefined,
         services: services !== undefined ? services : undefined,
+        availability: availability !== undefined ? availability : undefined,
+        timezone: timezone !== undefined ? timezone : undefined,
+        gender: gender !== undefined ? gender : undefined,
+        location: location !== undefined ? location : undefined,
+        leaves: leaves !== undefined ? leaves : undefined,
       })
       .where(eq(expertProfile.userId, expertId));
 

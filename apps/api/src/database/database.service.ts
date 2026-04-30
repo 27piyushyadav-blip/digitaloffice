@@ -164,64 +164,13 @@ export class DatabaseService {
 
   // Organization related queries
   async findOrganizationById(organizationId: string) {
-    let [org] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.userId, organizationId));
+    const org = await this.ensureOrganizationProfile(organizationId);
+    if (!org) return null;
     
-    if (!org) {
-      const [account] = await this.db.select().from(organisation).where(eq(organisation.id, organizationId));
-      if (!account) return null;
-      
-      org = {
-        id: account.id,
-        userId: account.id,
-        name: account.name,
-        email: account.email || null,
-        phone: null,
-        phoneNumber: null,
-        officialEmail: account.email || null,
-        description: null,
-        tagline: null,
-        aboutUs: null,
-        category: null,
-        subdomain: null,
-        industry: null,
-        specialties: [],
-        location: null,
-        addressLine1: null,
-        city: null,
-        state: null,
-        zipCode: null,
-        isPhysicalOffice: false,
-        coordinates: null,
-        website: null,
-        websiteUrl: null,
-        socialLinks: null,
-        logo: account.image || null,
-        logoUrl: account.image || null,
-        coverImageUrl: null,
-        introVideo: null,
-        foundedYear: null,
-        licenseNumber: null,
-        taxIdNumber: null,
-        businessLicenseUrl: null,
-        offeredServiceTypes: [],
-        operatingHours: [],
-        bookingPolicy: null,
-        cancellationWindowHours: null,
-        bankDetails: null,
-        workingHours: null,
-        tags: [],
-        documents: [],
-        hasPendingUpdates: false,
-        verified: false,
-        memberCount: 0,
-        rating: "0",
-        verificationStatus: "ONBOARDING",
-        rejectionReason: null,
-        createdAt: account.createdAt,
-        updatedAt: account.updatedAt,
-      };
-    }
-    return org;
+    return {
+      ...org,
+      email: (org as any).officialEmail || null,
+    };
   }
 
   async ensureOrganizationProfile(userId: string) {
