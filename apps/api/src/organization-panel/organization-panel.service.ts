@@ -384,8 +384,16 @@ export class OrganizationPanelService {
   }
 
   async createExpert(userId: string, data: any) {
-    const org = await this.getProfile(userId);
-    const organizationProfileId = org.id;
+    const orgProfile = await this.databaseService.db
+  .select()
+  .from(organizationProfile)
+  .where(eq(organizationProfile.organizationId, userId));
+
+if (orgProfile.length === 0) {
+  throw new BadRequestException('Organization profile not found');
+}
+
+const organizationProfileId = orgProfile[0].id;
 
     const { name, email, username, bio, specialization, experience, consultationFee, avatar, introVideo, education, workHistory, availability, languages, socialLinks, tags, services } = data;
 
