@@ -387,7 +387,7 @@ export class OrganizationPanelService {
     const orgProfile = await this.databaseService.db
   .select()
   .from(organizationProfile)
-  .where(eq(organizationProfile.organizationId, userId));
+  .where(eq(organizationProfile.userId, userId));
 
 if (orgProfile.length === 0) {
   throw new BadRequestException('Organization profile not found');
