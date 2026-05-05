@@ -67,6 +67,7 @@ export const expertProfile = pgTable("expert_profile", {
     note?: string;
     isRecurring?: boolean;
   }>>(),
+  isVisible: boolean("is_visible").default(true),
 });
 
 export type ExpertProfile = typeof expertProfile.$inferSelect;

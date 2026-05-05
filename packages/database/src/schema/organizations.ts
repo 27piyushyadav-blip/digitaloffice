@@ -66,6 +66,8 @@ export const organizationProfile = pgTable("organization_profile", {
     fileSize?: string;
   }>>(),
   hasPendingUpdates: boolean("has_pending_updates").default(false),
+  isVisible: boolean("is_visible").default(true),
+  menu: json("menu").$type<any[]>(),
   verified: boolean("verified").default(false),
   memberCount: integer("member_count").default(0),
   rating: decimal("rating", { precision: 3, scale: 2 }).default("0"),

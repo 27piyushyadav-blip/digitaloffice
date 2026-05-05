@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 
 @Injectable()
@@ -248,6 +248,204 @@ export class AdminPanelService {
       suspendedUntil: suspendData.suspendedUntil,
       status: 'suspended',
     };
+  }
+
+  async updateOrganization(orgId: string, updateData: any) {
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+
+    await this.databaseService.updateOrganizationProfile(orgId, updateData);
+    return {
+      success: true,
+      message: 'Organization updated successfully',
+      orgId,
+    };
+  }
+
+  async getOrganizationDetails(orgId: string) {
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    return org;
+  }
+
+  async uploadOrganizationDP(orgId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-logos/${file.filename}`;
+    
+    // Update multiple fields for backward compatibility
+    await this.databaseService.updateOrganizationProfile(orgId, { 
+      logo: fileUrl, 
+      logoUrl: fileUrl, 
+      image: fileUrl 
+    });
+    
+    return { success: true, url: fileUrl };
+  }
+
+  async uploadOrganizationVideo(orgId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-videos/${file.filename}`;
+    await this.databaseService.updateOrganizationProfile(orgId, { introVideo: fileUrl });
+    return { success: true, url: fileUrl };
+  }
+
+  async uploadOrganizationDocument(orgId: string, file: Express.Multer.File, title: string, category: string) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-docs/${file.filename}`;
+    
+    const existingDocs = org && Array.isArray(org.documents) ? org.documents : [];
+    const newDoc = {
+      title: title || file.originalname,
+      category: category || 'General',
+      url: fileUrl,
+      uploadedAt: new Date().toISOString(),
+      fileType: file.mimetype,
+      fileSize: `${(file.size / 1024).toFixed(2)} KB`
+    };
+    
+    await this.databaseService.updateOrganizationProfile(orgId, { documents: [...existingDocs, newDoc] });
+    return { success: true, url: fileUrl, document: newDoc };
+  }
+
+  async uploadExpertDP(expertId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const expert = await this.databaseService.findExpertById(expertId);
+    if (!expert) throw new NotFoundException('Expert not found');
+
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/profile-images/${file.filename}`;
+    
+    // Update multiple fields for backward compatibility
+    await this.databaseService.updateExpertProfile(expertId, { 
+      avatarUrl: fileUrl, 
+      profileImageUrl: fileUrl,
+      profileImage: fileUrl 
+    });
+    
+    return { success: true, url: fileUrl };
+  }
+
+  async uploadExpertVideo(expertId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const expert = await this.databaseService.findExpertById(expertId);
+    if (!expert) throw new NotFoundException('Expert not found');
+
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/intro-videos/${file.filename}`;
+    await this.databaseService.updateExpertProfile(expertId, { 
+      videoUrl: fileUrl, 
+      introVideoUrl: fileUrl,
+      introVideo: fileUrl
+    });
+    return { success: true, url: fileUrl };
+  }
+
+  async uploadExpertDocument(expertId: string, file: Express.Multer.File, title: string, category: string) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const expert = await this.databaseService.findExpertById(expertId);
+    if (!expert) throw new NotFoundException('Expert not found');
+
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/expert-docs/${file.filename}`;
+    
+    // In expertProfile, it might be nested under .profile
+    const profile = (expert as any).profile || expert;
+    const existingDocs = profile && Array.isArray(profile.documents) ? profile.documents : [];
+    
+    const newDoc = {
+      title: title || file.originalname,
+      category: category || 'General',
+      url: fileUrl,
+      uploadedAt: new Date().toISOString(),
+      fileType: file.mimetype,
+      fileSize: `${(file.size / 1024).toFixed(2)} KB`
+    };
+    
+    await this.databaseService.updateExpertProfile(expertId, { documents: [...existingDocs, newDoc] });
+    return { success: true, url: fileUrl, document: newDoc };
+  }
+
+  async getOrganizationExperts(orgId: string) {
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    return this.databaseService.findOrganizationExperts(orgId);
+  }
+
+  async getExpertDetails(orgId: string, expertId: string) {
+    // We could verify the expert belongs to the org here, but for admin it's fine
+    const expert = await this.databaseService.findExpertById(expertId);
+    if (!expert) throw new NotFoundException('Expert not found');
+    return expert;
+  }
+
+  async updateExpert(orgId: string, expertId: string, data: any) {
+    const expertRecord = await this.databaseService.findExpertById(expertId);
+    if (!expertRecord) throw new NotFoundException('Expert not found');
+
+    // Split data into basic info and profile info
+    const basicFields = ['name', 'email', 'username', 'image'];
+    const basicData: any = {};
+    const profileData: any = {};
+
+    Object.keys(data).forEach(key => {
+      if (basicFields.includes(key)) {
+        basicData[key] = data[key];
+      } else {
+        profileData[key] = data[key];
+      }
+    });
+
+    if (Object.keys(basicData).length > 0) {
+      await this.databaseService.updateExpert(expertId, basicData);
+    }
+
+    if (Object.keys(profileData).length > 0) {
+      await this.databaseService.updateExpertProfile(expertId, profileData);
+    }
+
+    return { 
+      success: true, 
+      message: 'Expert updated successfully',
+      expertId 
+    };
+  }
+
+  async addExpertToOrganization(orgId: string, expertId: string) {
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    
+    const expert = await this.databaseService.findExpertById(expertId);
+    if (!expert) throw new NotFoundException('Expert not found');
+
+    return this.databaseService.addExpertToOrganization(orgId, expertId);
+  }
+
+  async removeExpertFromOrganization(orgId: string, expertId: string) {
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+
+    const result = await this.databaseService.removeExpertFromOrganization(orgId, expertId);
+    if (!result) throw new BadRequestException('Expert was not part of this organization');
+    
+    return { success: true, message: 'Expert removed successfully' };
+  }
+
+  async getExpertBookings(expertId: string, status?: string) {
+    const expert = await this.databaseService.findExpertById(expertId);
+    if (!expert) throw new NotFoundException('Expert not found');
+    return this.databaseService.findExpertBookings(expertId, status);
   }
 
   // Profile Change Approval APIs

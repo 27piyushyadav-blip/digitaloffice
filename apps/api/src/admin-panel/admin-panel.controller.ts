@@ -8,7 +8,13 @@ import {
   UseGuards,
   Query,
   Param,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
 import { AdminPanelService } from './admin-panel.service';
 import { AtGuard } from '../auth/guards/at.guard';
 import { GetCurrentUserId } from '../common/decorators';
@@ -60,6 +66,107 @@ export class AdminPanelController {
     return this.adminPanelService.suspendExpert(expertId, suspendData);
   }
 
+  @Get('/experts/:expertId')
+  async getExpertFullDetails(@Param('expertId') expertId: string) {
+    return this.adminPanelService.getExpertDetails(null, expertId);
+  }
+
+  @Put('/experts/:expertId')
+  async updateExpertProfileDirect(
+    @Param('expertId') expertId: string,
+    @Body() updateData: any,
+  ) {
+    return this.adminPanelService.updateExpert(null, expertId, updateData);
+  }
+
+  @Post('/experts/:expertId/dp')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/profile-images',
+        filename: (req, file, cb) => {
+          const randomName = Array(32).fill(null).map(() => Math.round(Math.random() * 16).toString(16)).join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+          return cb(new BadRequestException('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  async uploadExpertDPDirect(
+    @Param('expertId') expertId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.adminPanelService.uploadExpertDP(expertId, file);
+  }
+
+  @Post('/experts/:expertId/video')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/intro-videos',
+        filename: (req, file, cb) => {
+          const randomName = Array(32).fill(null).map(() => Math.round(Math.random() * 16).toString(16)).join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(mp4|avi|mov|wmv)$/)) {
+          return cb(new BadRequestException('Only video files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
+  )
+  async uploadExpertVideoDirect(
+    @Param('expertId') expertId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.adminPanelService.uploadExpertVideo(expertId, file);
+  }
+
+  @Post('/experts/:expertId/documents')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/expert-docs',
+        filename: (req, file, cb) => {
+          const randomName = Array(32).fill(null).map(() => Math.round(Math.random() * 16).toString(16)).join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png', 'image/jpg'];
+        if (!allowedTypes.includes(file.mimetype)) {
+          return cb(new BadRequestException('Only PDF, Word, and image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadExpertDocumentDirect(
+    @Param('expertId') expertId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { title: string; category: string },
+  ) {
+    return this.adminPanelService.uploadExpertDocument(expertId, file, body?.title, body?.category);
+  }
+
+  @Get('/experts/:expertId/bookings')
+  async getExpertBookingsDirect(
+    @Param('expertId') expertId: string,
+    @Query('status') status?: string,
+  ) {
+    return this.adminPanelService.getExpertBookings(expertId, status);
+  }
+
   // Organization Verification APIs
   @Get('/organizations/pending')
   async getPendingOrganizations() {
@@ -96,18 +203,253 @@ export class AdminPanelController {
     return this.adminPanelService.suspendOrganization(orgId, suspendData);
   }
 
+  @Put('/organizations/:orgId')
+  async updateOrganization(
+    @Param('orgId') orgId: string,
+    @Body() updateData: any,
+  ) {
+    return this.adminPanelService.updateOrganization(orgId, updateData);
+  }
+
+  @Get('/organizations/:orgId')
+  async getOrganizationDetails(@Param('orgId') orgId: string) {
+    return this.adminPanelService.getOrganizationDetails(orgId);
+  }
+
+  @Post('/organizations/:orgId/dp')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-logos',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+          return cb(new BadRequestException('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  async uploadOrganizationDP(
+    @Param('orgId') orgId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.adminPanelService.uploadOrganizationDP(orgId, file);
+  }
+
+  @Post('/organizations/:orgId/video')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-videos',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(mp4|avi|mov|wmv)$/)) {
+          return cb(new BadRequestException('Only video files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
+  )
+  async uploadOrganizationVideo(
+    @Param('orgId') orgId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.adminPanelService.uploadOrganizationVideo(orgId, file);
+  }
+
+  @Post('/organizations/:orgId/documents')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-docs',
+        filename: (req, file, cb) => {
+          const randomName = Array(32).fill(null).map(() => Math.round(Math.random() * 16).toString(16)).join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        const allowedTypes = [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'image/jpeg',
+          'image/png',
+          'image/jpg'
+        ];
+        if (!allowedTypes.includes(file.mimetype)) {
+          return cb(new BadRequestException('Only PDF, Word, and image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadOrganizationDocument(
+    @Param('orgId') orgId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { title: string; category: string },
+  ) {
+    return this.adminPanelService.uploadOrganizationDocument(orgId, file, body.title, body.category);
+  }
+
+  @Get('/organizations/:orgId/experts')
+  async getOrganizationExperts(@Param('orgId') orgId: string) {
+    return this.adminPanelService.getOrganizationExperts(orgId);
+  }
+
+  @Get('/organizations/:orgId/experts/:expertId')
+  async getExpertDetails(
+    @Param('orgId') orgId: string,
+    @Param('expertId') expertId: string
+  ) {
+    return this.adminPanelService.getExpertDetails(orgId, expertId);
+  }
+
+  @Put('/organizations/:orgId/experts/:expertId')
+  async updateExpertDetails(
+    @Param('orgId') orgId: string,
+    @Param('expertId') expertId: string,
+    @Body() updateData: any
+  ) {
+    return this.adminPanelService.updateExpert(orgId, expertId, updateData);
+  }
+
+  @Delete('/organizations/:orgId/experts/:expertId')
+  async removeExpertFromOrganization(
+    @Param('orgId') orgId: string,
+    @Param('expertId') expertId: string
+  ) {
+    return this.adminPanelService.removeExpertFromOrganization(orgId, expertId);
+  }
+
+  @Post('/organizations/:orgId/experts')
+  async addExpertToOrganization(
+    @Param('orgId') orgId: string,
+    @Body('expertId') expertId: string
+  ) {
+    if (!expertId) throw new BadRequestException('expertId is required');
+    return this.adminPanelService.addExpertToOrganization(orgId, expertId);
+  }
+
+  @Post('/organizations/:orgId/experts/:expertId/dp')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/profile-images',
+        filename: (req, file, cb) => {
+          const randomName = Array(32).fill(null).map(() => Math.round(Math.random() * 16).toString(16)).join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+          return cb(new BadRequestException('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  async uploadExpertDP(
+    @Param('orgId') orgId: string,
+    @Param('expertId') expertId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.adminPanelService.uploadExpertDP(expertId, file);
+  }
+
+  @Post('/organizations/:orgId/experts/:expertId/video')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/intro-videos',
+        filename: (req, file, cb) => {
+          const randomName = Array(32).fill(null).map(() => Math.round(Math.random() * 16).toString(16)).join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(mp4|avi|mov|wmv)$/)) {
+          return cb(new BadRequestException('Only video files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
+  )
+  async uploadExpertVideo(
+    @Param('orgId') orgId: string,
+    @Param('expertId') expertId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.adminPanelService.uploadExpertVideo(expertId, file);
+  }
+
+  @Post('/organizations/:orgId/experts/:expertId/documents')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/expert-docs',
+        filename: (req, file, cb) => {
+          const randomName = Array(32).fill(null).map(() => Math.round(Math.random() * 16).toString(16)).join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        const allowedTypes = [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'image/jpeg',
+          'image/png',
+          'image/jpg'
+        ];
+        if (!allowedTypes.includes(file.mimetype)) {
+          return cb(new BadRequestException('Only PDF, Word, and image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadExpertDocument(
+    @Param('orgId') orgId: string,
+    @Param('expertId') expertId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { title: string; category: string },
+  ) {
+    return this.adminPanelService.uploadExpertDocument(expertId, file, body?.title, body?.category);
+  }
+
   // Profile Change Approval APIs
   @Get('/profile-changes')
   async getPendingProfileChanges() {
     return this.adminPanelService.getPendingProfileChanges();
   }
 
-  @Post('/profile-changes/{changeId}/approve')
+  @Post('/profile-changes/:changeId/approve')
   async approveProfileChange(@Param('changeId') changeId: string) {
     return this.adminPanelService.approveProfileChange(changeId);
   }
 
-  @Post('/profile-changes/{changeId}/reject')
+  @Post('/profile-changes/:changeId/reject')
   async rejectProfileChange(@Param('changeId') changeId: string) {
     return this.adminPanelService.rejectProfileChange(changeId);
   }
@@ -130,12 +472,12 @@ export class AdminPanelController {
     );
   }
 
-  @Get('/bookings/{bookingId}')
+  @Get('/bookings/:bookingId')
   async getBookingDetails(@Param('bookingId') bookingId: string) {
     return this.adminPanelService.getBookingDetails(bookingId);
   }
 
-  @Post('/bookings/{bookingId}/cancel')
+  @Post('/bookings/:bookingId/cancel')
   async cancelBooking(@Param('bookingId') bookingId: string) {
     return this.adminPanelService.cancelBooking(bookingId);
   }
@@ -148,12 +490,12 @@ export class AdminPanelController {
     return this.adminPanelService.getRefundRequests(status);
   }
 
-  @Post('/refunds/{refundId}/approve')
+  @Post('/refunds/:refundId/approve')
   async approveRefund(@Param('refundId') refundId: string) {
     return this.adminPanelService.approveRefund(refundId);
   }
 
-  @Post('/refunds/{refundId}/reject')
+  @Post('/refunds/:refundId/reject')
   async rejectRefund(@Param('refundId') refundId: string) {
     return this.adminPanelService.rejectRefund(refundId);
   }
@@ -163,7 +505,7 @@ export class AdminPanelController {
     return this.adminPanelService.getDisputes();
   }
 
-  @Post('/disputes/{disputeId}/resolve')
+  @Post('/disputes/:disputeId/resolve')
   async resolveDispute(
     @Param('disputeId') disputeId: string,
     @Body() resolveData: any,
@@ -203,7 +545,7 @@ export class AdminPanelController {
     return this.adminPanelService.getCategories();
   }
 
-  @Put('/categories/{id}')
+  @Put('/categories/:id')
   async updateCategory(
     @Param('id') categoryId: string,
     @Body() categoryData: any,
@@ -211,7 +553,7 @@ export class AdminPanelController {
     return this.adminPanelService.updateCategory(categoryId, categoryData);
   }
 
-  @Delete('/categories/{id}')
+  @Delete('/categories/:id')
   async deleteCategory(@Param('id') categoryId: string) {
     return this.adminPanelService.deleteCategory(categoryId);
   }
@@ -228,17 +570,17 @@ export class AdminPanelController {
   }
 
   // Content Moderation APIs
-  @Delete('/reviews/{reviewId}')
+  @Delete('/reviews/:reviewId')
   async removeReview(@Param('reviewId') reviewId: string) {
     return this.adminPanelService.removeReview(reviewId);
   }
 
-  @Delete('/users/{userId}')
+  @Delete('/users/:userId')
   async removeUser(@Param('userId') userId: string) {
     return this.adminPanelService.removeUser(userId);
   }
 
-  @Post('/users/{userId}/ban')
+  @Post('/users/:userId/ban')
   async banUser(
     @Param('userId') userId: string,
     @Body() banData: any,

@@ -17,7 +17,7 @@ import {
   offerItems,
   bookings,
 } from '@repo/database';
-import { eq, and, desc, or, sql, isNull } from 'drizzle-orm';
+import { eq, and, desc, or, sql, isNull, inArray } from 'drizzle-orm';
 
 @Injectable()
 export class DatabaseService {
@@ -415,6 +415,39 @@ export class DatabaseService {
       .where(eq(expertOrganizations.organizationId, organizationProfileId));
   }
 
+  async addExpertToOrganization(organizationId: string, expertId: string) {
+    const [existing] = await this.db.select().from(expertOrganizations)
+      .where(and(eq(expertOrganizations.organizationId, organizationId), eq(expertOrganizations.expertId, expertId)));
+      
+    if (existing) {
+      if (existing.status !== 'APPROVED') {
+        const [updated] = await this.db.update(expertOrganizations)
+          .set({ status: 'APPROVED', joinedAt: new Date() })
+          .where(eq(expertOrganizations.id, existing.id))
+          .returning();
+        return updated;
+      }
+      return existing;
+    }
+    
+    const [inserted] = await this.db.insert(expertOrganizations).values({
+      expertId,
+      organizationId,
+      status: 'APPROVED',
+      joinedAt: new Date()
+    }).returning();
+    
+    return inserted;
+  }
+
+  async removeExpertFromOrganization(organizationId: string, expertId: string) {
+    const deleted = await this.db.delete(expertOrganizations)
+      .where(and(eq(expertOrganizations.organizationId, organizationId), eq(expertOrganizations.expertId, expertId)))
+      .returning();
+      
+    return deleted.length > 0;
+  }
+
   async updateOrganizationProfile(organizationId: string, data: any) {
     const [existingProfile] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.userId, organizationId));
     
@@ -442,7 +475,7 @@ export class DatabaseService {
   }
 
   async findOrganizationsByStatus(status: string) {
-    return await this.db
+    const orgs = await this.db
       .select({
         ...organizationProfile,
         email: organisation.email,
@@ -450,6 +483,24 @@ export class DatabaseService {
       .from(organizationProfile)
       .leftJoin(organisation, eq(organizationProfile.userId, organisation.id))
       .where(eq(organizationProfile.verificationStatus, status));
+
+    if (orgs.length === 0) return [];
+    
+    const orgIds = orgs.map((o: any) => o.id);
+    const counts = await this.db.select({
+      organizationId: expertOrganizations.organizationId,
+      count: sql<number>`count(*)`
+    })
+    .from(expertOrganizations)
+    .where(inArray(expertOrganizations.organizationId, orgIds))
+    .groupBy(expertOrganizations.organizationId);
+
+    const countMap = Object.fromEntries(counts.map((c: any) => [c.organizationId, Number(c.count)]));
+
+    return orgs.map((org: any) => ({
+      ...org,
+      memberCount: countMap[org.id] || org.memberCount || 0
+    }));
   }
 
   async findOrganizations(status?: string, location?: string, industry?: string) {
@@ -469,8 +520,26 @@ export class DatabaseService {
       query = query.where(and(...conditions));
     }
     
-    return await query;
+    const orgs = await query;
+    if (orgs.length === 0) return [];
+    
+    const orgIds = orgs.map((o: any) => o.id);
+    const counts = await this.db.select({
+      organizationId: expertOrganizations.organizationId,
+      count: sql<number>`count(*)`
+    })
+    .from(expertOrganizations)
+    .where(inArray(expertOrganizations.organizationId, orgIds))
+    .groupBy(expertOrganizations.organizationId);
+
+    const countMap = Object.fromEntries(counts.map((c: any) => [c.organizationId, Number(c.count)]));
+
+    return orgs.map((org: any) => ({
+      ...org,
+      memberCount: countMap[org.id] || org.memberCount || 0
+    }));
   }
+
 
   async createJoinRequest(expertId: string, organizationId: string) {
     // TODO: Implement actual database insert
@@ -490,8 +559,18 @@ export class DatabaseService {
 
   // Booking related queries
   async findExpertBookings(expertId: string, status?: string) {
-    // TODO: Implement actual database query
-    return [];
+    let conditions = [eq(bookings.expertId, expertId)];
+    if (status) conditions.push(eq(bookings.status, status));
+    
+    return await this.db
+      .select({
+        booking: bookings,
+        client: client,
+      })
+      .from(bookings)
+      .leftJoin(client, eq(bookings.clientId, client.id))
+      .where(and(...conditions))
+      .orderBy(desc(bookings.createdAt));
   }
 
   async findBookingById(expertId: string, bookingId: string) {
