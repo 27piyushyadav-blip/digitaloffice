@@ -329,7 +329,7 @@ export class AdminPanelService {
       }
     });
 
-    await this.databaseService.updateOrganizationProfile(orgId, filteredData);
+    await this.databaseService.updateOrganizationProfile(org.userId, filteredData);
     return {
       success: true,
       message: 'Organization updated successfully',
