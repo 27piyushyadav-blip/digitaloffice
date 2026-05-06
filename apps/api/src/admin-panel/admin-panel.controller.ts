@@ -25,23 +25,23 @@ export class AdminPanelController {
   constructor(private readonly adminPanelService: AdminPanelService) {}
 
   // Admin Authentication APIs
-  @Get('/auth/profile')
+  @Get('auth/profile')
   async getAdminProfile(@GetCurrentUserId() adminId: string) {
     return this.adminPanelService.getAdminProfile(adminId);
   }
 
   // Expert Verification APIs
-  @Get('/experts/pending')
+  @Get('experts/pending')
   async getPendingExperts() {
     return this.adminPanelService.getPendingExperts();
   }
 
-  @Post('/experts/:expertId/approve')
+  @Post('experts/:expertId/approve')
   async approveExpert(@Param('expertId') expertId: string) {
     return this.adminPanelService.approveExpert(expertId);
   }
 
-  @Post('/experts/:expertId/reject')
+  @Post('experts/:expertId/reject')
   async rejectExpert(
     @Param('expertId') expertId: string,
     @Body() rejectData: any,
@@ -49,7 +49,7 @@ export class AdminPanelController {
     return this.adminPanelService.rejectExpert(expertId, rejectData);
   }
 
-  @Get('/experts')
+  @Get('experts')
   async getAllExperts(
     @Query('status') status?: string,
     @Query('category') category?: string,
@@ -58,7 +58,7 @@ export class AdminPanelController {
     return this.adminPanelService.getAllExperts(status, category, organization);
   }
 
-  @Post('/experts/:expertId/suspend')
+  @Post('experts/:expertId/suspend')
   async suspendExpert(
     @Param('expertId') expertId: string,
     @Body() suspendData: any,
@@ -168,7 +168,7 @@ export class AdminPanelController {
   }
 
   // Organization Verification APIs
-  @Get('/organizations/pending')
+  @Get('organizations/pending')
   async getPendingOrganizations() {
     return this.adminPanelService.getPendingOrganizations();
   }
@@ -186,7 +186,7 @@ export class AdminPanelController {
     return this.adminPanelService.rejectOrganization(orgId, rejectData);
   }
 
-  @Get('/organizations')
+  @Get('organizations')
   async getAllOrganizations(
     @Query('status') status?: string,
     @Query('location') location?: string,
@@ -195,7 +195,7 @@ export class AdminPanelController {
     return this.adminPanelService.getAllOrganizations(status, location, industry);
   }
 
-  @Post('/organizations/:orgId/suspend')
+  @Post('organizations/:orgId/suspend')
   async suspendOrganization(
     @Param('orgId') orgId: string,
     @Body() suspendData: any,
@@ -203,7 +203,31 @@ export class AdminPanelController {
     return this.adminPanelService.suspendOrganization(orgId, suspendData);
   }
 
-  @Put('/organizations/:orgId')
+  @Post('organizations/:orgId/hold')
+  async toggleHold(
+    @Param('orgId') orgId: string,
+    @Body() data: { isBlocked: boolean; durationMinutes?: number },
+  ) {
+    return this.adminPanelService.toggleOrganizationHold(orgId, data.isBlocked, data.durationMinutes);
+  }
+
+  @Post('organizations/:orgId/messaging-toggle')
+  async toggleOrganizationMessaging(
+    @Param('orgId') orgId: string,
+    @Body() data: { isDisabled: boolean },
+  ) {
+    return this.adminPanelService.toggleOrganizationMessaging(orgId, data.isDisabled);
+  }
+
+  @Post('organizations/:orgId/refund')
+  async requestOrganizationRefund(
+    @Param('orgId') orgId: string,
+    @Body() data: any,
+  ) {
+    return this.adminPanelService.requestOrganizationRefund(orgId, data);
+  }
+
+  @Put('organizations/:orgId')
   async updateOrganization(
     @Param('orgId') orgId: string,
     @Body() updateData: any,
@@ -211,7 +235,12 @@ export class AdminPanelController {
     return this.adminPanelService.updateOrganization(orgId, updateData);
   }
 
-  @Get('/organizations/:orgId')
+  @Get('organizations/:orgId/check-details')
+  async checkOrganizationDetails(@Param('orgId') orgId: string) {
+    return this.adminPanelService.checkOrganizationDetails(orgId);
+  }
+
+  @Get('organizations/:orgId')
   async getOrganizationDetails(@Param('orgId') orgId: string) {
     return this.adminPanelService.getOrganizationDetails(orgId);
   }

@@ -18,7 +18,7 @@ import {
   bookings,
   reviews,
 } from '@repo/database';
-import { eq, and, desc, or, sql, isNull, inArray } from 'drizzle-orm';
+import { eq, and, desc, or, sql, isNull, inArray, getTableColumns } from 'drizzle-orm';
 
 @Injectable()
 export class DatabaseService {
@@ -67,7 +67,15 @@ export class DatabaseService {
     };
   }
 
-  async findLiveExperts() {
+  async findLiveExperts(onlyVisible: boolean = true) {
+    let conditions = [
+      isNull(expertOrganizations.organizationId),
+      eq(expertProfile.verificationStatus, 'LIVE')
+    ];
+    if (onlyVisible) {
+      conditions.push(eq(expertProfile.isVisible, true));
+    }
+
     return await this.db
       .select({
         expert: expert,
@@ -76,7 +84,7 @@ export class DatabaseService {
       .from(expertProfile)
       .innerJoin(expert, eq(expertProfile.userId, expert.id))
       .leftJoin(expertOrganizations, eq(expert.id, expertOrganizations.expertId))
-      .where(isNull(expertOrganizations.organizationId));
+      .where(and(...conditions));
   }
 
   async findLiveExpertById(expertId: string) {
@@ -396,7 +404,7 @@ export class DatabaseService {
   async findOrganizationById(userId: string) {
     const [org] = await this.db
       .select({
-        ...organizationProfile,
+        ...getTableColumns(organizationProfile),
         email: organisation.email,
         ownerName: organisation.name,
         isBlocked: organisation.isBlocked,
@@ -430,7 +438,13 @@ export class DatabaseService {
     return updated;
   }
 
-  async findOrganizationExperts(organizationProfileId: string) {
+  async findOrganizationExperts(organizationProfileId: string, onlyVisible: boolean = false) {
+    let conditions = [eq(expertOrganizations.organizationId, organizationProfileId)];
+    if (onlyVisible) {
+      conditions.push(eq(expertProfile.isVisible, true));
+      conditions.push(eq(expertProfile.verificationStatus, 'LIVE'));
+    }
+
     return await this.db
       .select({
         expert: expert,
@@ -439,7 +453,27 @@ export class DatabaseService {
       .from(expertOrganizations)
       .innerJoin(expert, eq(expertOrganizations.expertId, expert.id))
       .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
-      .where(eq(expertOrganizations.organizationId, organizationProfileId));
+      .where(and(...conditions));
+  }
+
+  async findMultipleOrganizationsExperts(organizationProfileIds: string[], onlyVisible: boolean = false) {
+    if (organizationProfileIds.length === 0) return [];
+    let conditions = [inArray(expertOrganizations.organizationId, organizationProfileIds)];
+    if (onlyVisible) {
+      conditions.push(eq(expertProfile.isVisible, true));
+      conditions.push(eq(expertProfile.verificationStatus, 'LIVE'));
+    }
+
+    return await this.db
+      .select({
+        expert: expert,
+        expert_profile: expertProfile,
+        organizationId: expertOrganizations.organizationId,
+      })
+      .from(expertOrganizations)
+      .innerJoin(expert, eq(expertOrganizations.expertId, expert.id))
+      .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
+      .where(and(...conditions));
   }
 
   async addExpertToOrganization(organizationId: string, expertId: string) {
@@ -504,7 +538,7 @@ export class DatabaseService {
   async findOrganizationsByStatus(status: string) {
     const orgs = await this.db
       .select({
-        ...organizationProfile,
+        ...getTableColumns(organizationProfile),
         email: organisation.email,
       })
       .from(organizationProfile)
@@ -530,19 +564,25 @@ export class DatabaseService {
     }));
   }
 
-  async findOrganizations(status?: string, location?: string, industry?: string) {
+  async findOrganizations(status?: string, location?: string, industry?: string, onlyVisible: boolean = false) {
     let conditions = [];
     if (status) conditions.push(eq(organizationProfile.verificationStatus, status));
     if (location) conditions.push(eq(organizationProfile.location, location));
     if (industry) conditions.push(eq(organizationProfile.industry, industry));
+    if (onlyVisible) conditions.push(eq(organizationProfile.isVisible, true));
 
     let query = this.db
       .select({
-        ...organizationProfile,
+        ...getTableColumns(organizationProfile),
+        isVisible: organizationProfile.isVisible,
         email: organisation.email,
+        isBlocked: organisation.isBlocked,
+        messagingDisabled: organisation.messagingDisabled,
+        blockedUntil: organisation.blockedUntil,
       })
       .from(organizationProfile)
       .leftJoin(organisation, eq(organizationProfile.userId, organisation.id));
+
     if (conditions.length > 0) {
       query = query.where(and(...conditions));
     }

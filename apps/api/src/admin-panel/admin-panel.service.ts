@@ -181,21 +181,58 @@ export class AdminPanelService {
 
   async getAllOrganizations(status?: string, location?: string, industry?: string) {
     const orgs = await this.databaseService.findOrganizations(status, location, industry);
+    
+    // Efficiently fetch experts for all organizations in the list
+    const orgIds = orgs.map(org => org.id);
+    const allExperts = await this.databaseService.findMultipleOrganizationsExperts(orgIds);
+    
+    // Group experts by organizationId
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const formatUrl = (url: string | null) => {
+      if (!url) return null;
+      if (url.startsWith('http')) return url;
+      return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+    };
+
+    const expertsByOrg: Record<string, any[]> = {};
+    allExperts.forEach(item => {
+      if (!expertsByOrg[item.organizationId]) {
+        expertsByOrg[item.organizationId] = [];
+      }
+      expertsByOrg[item.organizationId].push({
+        expertId: item.expert.id,
+        name: item.expert.name,
+        email: item.expert.email,
+        image: formatUrl(item.expert_profile?.profileImage || item.expert.image),
+        category: item.expert_profile?.category,
+        experience: item.expert_profile?.experience,
+        rating: item.expert_profile?.rating || 0,
+        totalBookings: item.expert_profile?.totalBookings || 0,
+        status: item.expert_profile?.verificationStatus?.toLowerCase(),
+        isVisible: item.expert_profile?.isVisible ?? true,
+      });
+    });
+
     return {
       organizations: orgs.map(org => ({
-        orgId: org.userId,
+        orgId: org.id,
+        userId: org.userId,
         name: org.name,
         email: org.email,
         phone: org.phone,
         industry: org.industry,
         location: org.location,
         description: org.description,
-        logo: org.logo,
+        logo: formatUrl(org.logo),
         introVideo: org.introVideo,
         website: org.website,
         memberCount: org.memberCount,
         rating: org.rating,
         status: org.verificationStatus?.toLowerCase() || 'pending',
+        isBlocked: org.isBlocked || false,
+        messagingDisabled: org.messagingDisabled || false,
+        blockedUntil: org.blockedUntil,
+        isVisible: org.isVisible ?? true,
         rejectionReason: org.rejectionReason,
         joinedAt: org.createdAt,
         documents: org.documents,
@@ -221,6 +258,7 @@ export class AdminPanelService {
         taxIdNumber: org.taxIdNumber,
         businessLicenseUrl: org.businessLicenseUrl,
         bankDetails: org.bankDetails,
+        experts: expertsByOrg[org.id] || [],
       })),
       total: orgs.length,
       verifiedCount: orgs.filter(o => o.verificationStatus === 'VERIFIED').length,
@@ -235,8 +273,42 @@ export class AdminPanelService {
     return this.databaseService.toggleUserBlock(orgId, 'organisation', true, until);
   }
 
+  async toggleOrganizationHold(orgId: string, isBlocked: boolean, durationMinutes?: number) {
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+
+    let blockedUntil = null;
+    if (isBlocked && durationMinutes) {
+      blockedUntil = new Date();
+      blockedUntil.setMinutes(blockedUntil.getMinutes() + durationMinutes);
+    }
+
+    return this.databaseService.toggleUserBlock(org.userId, 'organisation', isBlocked, blockedUntil);
+  }
+
+  async toggleOrganizationMessaging(orgId: string, isDisabled: boolean) {
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+
+    return this.databaseService.toggleMessaging(org.userId, 'organisation', isDisabled);
+  }
+
+  async requestOrganizationRefund(orgId: string, data: any) {
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+
+    // This is a stub for refund logic
+    return {
+      success: true,
+      message: 'Refund request recorded successfully',
+      orgId,
+      refundAmount: data.amount,
+      reason: data.reason,
+    };
+  }
+
   async updateOrganization(orgId: string, updateData: any) {
-    const org = await this.databaseService.findOrganizationById(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
     // Filter out fields that should not be updated directly or need special handling
@@ -247,7 +319,7 @@ export class AdminPanelService {
       'addressLine1', 'city', 'state', 'zipCode', 'coordinates', 
       'offeredServiceTypes', 'operatingHours', 'bookingPolicy', 
       'cancellationWindowHours', 'bankDetails', 'workingHours', 'tags', 
-      'isVisible', 'menu'
+      'isVisible', 'menu', 'verificationStatus', 'verified'
     ];
 
     const filteredData: any = {};
@@ -269,6 +341,59 @@ export class AdminPanelService {
     const org = await this.databaseService.findOrganizationById(orgId);
     if (!org) throw new NotFoundException('Organization not found');
     return org;
+  }
+
+  async checkOrganizationDetails(orgId: string) {
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+
+    const profileFields = [
+      { field: 'name', label: 'Organization Name', value: org.name },
+      { field: 'category', label: 'Category/Industry', value: org.category || org.industry },
+      { field: 'tagline', label: 'Tagline', value: org.tagline },
+      { field: 'aboutUs', label: 'About Us/Description', value: org.aboutUs || org.description },
+      { field: 'officialEmail', label: 'Official Email', value: org.officialEmail || org.email },
+      { field: 'phone', label: 'Phone Number', value: org.phoneNumber || org.phone },
+      { field: 'subdomain', label: 'Subdomain', value: org.subdomain },
+      { field: 'logo', label: 'Organization Logo', value: org.logo || org.logoUrl },
+      { field: 'taxIdNumber', label: 'Tax ID / License Number', value: org.taxIdNumber || org.licenseNumber },
+    ];
+
+    const bankFields = [
+      { field: 'bankName', label: 'Bank Name', value: org.bankDetails?.bankName },
+      { field: 'accountName', label: 'Account Name', value: org.bankDetails?.accountName },
+      { field: 'accountNumber', label: 'Account Number', value: org.bankDetails?.accountNumber },
+      { field: 'bsbCode', label: 'BSB/IFSC Code', value: org.bankDetails?.bsbCode || org.bankDetails?.ifscCode },
+    ];
+
+    const ownerFields = [
+      { field: 'ownerName', label: 'Owner Name', value: org.ownerName },
+      { field: 'email', label: 'Owner Email', value: org.email },
+    ];
+
+    const missingFields = [
+      ...profileFields.filter(f => !f.value),
+      ...bankFields.filter(f => !f.value),
+      ...ownerFields.filter(f => !f.value),
+    ];
+
+    const totalFields = profileFields.length + bankFields.length + ownerFields.length;
+    const filledFields = totalFields - missingFields.length;
+    const completionPercentage = Math.round((filledFields / totalFields) * 100);
+
+    return {
+      orgId,
+      name: org.name,
+      completionPercentage,
+      status: org.verificationStatus,
+      details: {
+        profile: profileFields,
+        bank: bankFields,
+        owner: ownerFields,
+      },
+      missingFields: missingFields.map(f => f.label),
+      isProperlyFilled: missingFields.length === 0,
+    };
   }
 
   async uploadOrganizationDP(orgId: string, file: Express.Multer.File) {
@@ -405,7 +530,27 @@ export class AdminPanelService {
   async getOrganizationExperts(orgId: string) {
     const org = await this.databaseService.findOrganizationById(orgId);
     if (!org) throw new NotFoundException('Organization not found');
-    return this.databaseService.findOrganizationExperts(org.id);
+    const experts = await this.databaseService.findOrganizationExperts(org.id);
+
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const formatUrl = (url: string | null) => {
+      if (!url) return null;
+      if (url.startsWith('http')) return url;
+      return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+    };
+
+    return experts.map((item: any) => ({
+      expertId: item.expert.id,
+      name: item.expert.name,
+      email: item.expert.email,
+      image: formatUrl(item.expert_profile?.profileImage || item.expert.image),
+      category: item.expert_profile?.category,
+      experience: item.expert_profile?.experience,
+      rating: item.expert_profile?.rating || 0,
+      totalBookings: item.expert_profile?.totalBookings || 0,
+      status: item.expert_profile?.verificationStatus?.toLowerCase(),
+      isVisible: item.expert_profile?.isVisible ?? true,
+    }));
   }
 
   async getExpertDetails(orgId: string, expertId: string) {

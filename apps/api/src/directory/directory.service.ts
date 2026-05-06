@@ -69,11 +69,14 @@ export class DirectoryService {
   async getLiveExperts() {
     const rawExperts = await this.databaseService.findLiveExperts();
     
+    // Safety filter: ensure only visible experts are processed
+    const visibleExperts = rawExperts.filter(item => item.expert_profile?.isVisible !== false);
+
     return {
       status: 'success',
       data: {
-        experts: rawExperts.map((item) => this.mapExpertToPublicProfile(item)),
-        total: rawExperts.length,
+        experts: visibleExperts.map((item) => this.mapExpertToPublicProfile(item)),
+        total: visibleExperts.length,
         hasMore: false,
       }
     };
@@ -117,10 +120,13 @@ export class DirectoryService {
   }
 
   async getLiveOrganizations() {
-    const rawOrgs = await this.databaseService.findOrganizations('VERIFIED');
+    const rawOrgs = await this.databaseService.findOrganizations('VERIFIED', undefined, undefined, true);
     
+    // Safety filter: ensure only visible organizations are processed
+    const visibleOrgs = rawOrgs.filter(org => org.isVisible !== false);
+
     // For each organization, fetch real expert count if not already accurate
-    const orgsWithCount = await Promise.all(rawOrgs.map(async (org) => {
+    const orgsWithCount = await Promise.all(visibleOrgs.map(async (org) => {
       const experts = await this.databaseService.findOrganizationExperts(org.id);
       return {
         ...org,
@@ -154,8 +160,8 @@ export class DirectoryService {
     
     if (!rawOrg) return null;
     
-    // Fetch affiliated experts
-    const rawExperts = await this.databaseService.findOrganizationExperts(rawOrg.id);
+    // Fetch affiliated experts (only visible ones)
+    const rawExperts = await this.databaseService.findOrganizationExperts(rawOrg.id, true);
     const experts = rawExperts.map((item) => this.mapExpertToPublicProfile(item));
     
     return {
