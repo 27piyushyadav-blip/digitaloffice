@@ -213,18 +213,7 @@ export class AdminPanelService {
       if (!expertsByOrg[item.organizationId]) {
         expertsByOrg[item.organizationId] = [];
       }
-      expertsByOrg[item.organizationId].push({
-        expertId: item.expert.id,
-        name: item.expert.name,
-        email: item.expert.email,
-        image: formatUrl(item.expert_profile?.profileImage || item.expert.image),
-        category: item.expert_profile?.category,
-        experience: item.expert_profile?.experience,
-        rating: item.expert_profile?.rating || 0,
-        totalBookings: item.expert_profile?.totalBookings || 0,
-        status: item.expert_profile?.verificationStatus?.toLowerCase(),
-        isVisible: item.expert_profile?.isVisible ?? true,
-      });
+      expertsByOrg[item.organizationId].push(this.mapExpert(item, formatUrl));
     });
 
     return {
@@ -564,24 +553,51 @@ export class AdminPanelService {
       return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
     };
 
-    return experts.map((item: any) => ({
-      expertId: item.expert.id,
-      name: item.expert.name,
-      email: item.expert.email,
-      image: formatUrl(item.expert_profile?.profileImage || item.expert.image),
-      category: item.expert_profile?.category,
-      experience: item.expert_profile?.experience,
-      rating: item.expert_profile?.rating || 0,
-      totalBookings: item.expert_profile?.totalBookings || 0,
-      status: item.expert_profile?.verificationStatus?.toLowerCase(),
-      isVisible: item.expert_profile?.isVisible ?? true,
-    }));
+    return experts.map((item: any) => this.mapExpert(item, formatUrl));
   }
 
   async getExpertDetails(orgId: string, expertId: string) {
     const expert = await this.databaseService.findExpertById(expertId);
     if (!expert) throw new NotFoundException('Expert not found');
     return expert;
+  }
+
+  private mapExpert(item: any, formatUrl: (url: string | null) => string | null) {
+    const ep = item.expert_profile;
+    const e = item.expert;
+    
+    return {
+      expertId: e.id,
+      id: e.id, // For frontend compatibility
+      name: e.name,
+      username: e.username,
+      email: e.email,
+      phone: e.phone,
+      image: formatUrl(ep?.profileImage || e.image),
+      profileImage: formatUrl(ep?.profileImage || e.image),
+      introVideo: formatUrl(ep?.videoUrl || ep?.introVideo),
+      bio: ep?.bio,
+      category: ep?.category,
+      specialization: ep?.specialization || ep?.category,
+      experience: ep?.experience,
+      rating: ep?.rating || 0,
+      totalBookings: ep?.totalBookings || 0,
+      status: ep?.verificationStatus?.toLowerCase() || 'pending',
+      verificationStatus: ep?.verificationStatus || 'PENDING',
+      isVisible: ep?.isVisible ?? true,
+      languages: ep?.languages || [],
+      socialLinks: ep?.socialLinks || {},
+      documents: (ep?.documents as any[])?.map(doc => ({
+        ...doc,
+        url: formatUrl(doc.url)
+      })) || [],
+      education: ep?.education || [],
+      workHistory: ep?.workHistory || [],
+      services: ep?.services || [],
+      availability: ep?.availability || [],
+      isVerified: ep?.verificationStatus === 'LIVE' || ep?.verificationStatus === 'VERIFIED',
+      isOnline: ep?.isOnline || false,
+    };
   }
 
   async updateExpert(orgId: string, expertId: string, data: any) {
