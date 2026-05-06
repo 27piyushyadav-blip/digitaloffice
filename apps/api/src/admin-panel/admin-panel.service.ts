@@ -239,7 +239,25 @@ export class AdminPanelService {
     const org = await this.databaseService.findOrganizationById(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
-    await this.databaseService.updateOrganizationProfile(orgId, updateData);
+    // Filter out fields that should not be updated directly or need special handling
+    const allowedFields = [
+      'name', 'description', 'tagline', 'location', 'aboutUs', 'category', 
+      'subdomain', 'industry', 'phone', 'phoneNumber', 'officialEmail', 
+      'website', 'websiteUrl', 'socialLinks', 'specialties', 'isPhysicalOffice',
+      'addressLine1', 'city', 'state', 'zipCode', 'coordinates', 
+      'offeredServiceTypes', 'operatingHours', 'bookingPolicy', 
+      'cancellationWindowHours', 'bankDetails', 'workingHours', 'tags', 
+      'isVisible', 'menu'
+    ];
+
+    const filteredData: any = {};
+    Object.keys(updateData).forEach(key => {
+      if (allowedFields.includes(key)) {
+        filteredData[key] = updateData[key];
+      }
+    });
+
+    await this.databaseService.updateOrganizationProfile(orgId, filteredData);
     return {
       success: true,
       message: 'Organization updated successfully',
@@ -304,6 +322,28 @@ export class AdminPanelService {
     return { success: true, url: fileUrl, document: newDoc };
   }
 
+  async getOrganizationReviews(orgId: string) {
+    const org = await this.databaseService.findOrganizationById(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    return this.databaseService.findReviewsByOrganizationId(orgId);
+  }
+
+  async getOrganizationServices(orgId: string) {
+    return this.databaseService.listOrganizationServices(orgId);
+  }
+
+  async createOrganizationService(orgId: string, data: any) {
+    return this.databaseService.createOrganizationService(orgId, data);
+  }
+
+  async updateOrganizationService(orgId: string, serviceId: string, data: any) {
+    return this.databaseService.updateOrganizationService(orgId, serviceId, data);
+  }
+
+  async deleteOrganizationService(orgId: string, serviceId: string) {
+    return this.databaseService.deleteOrganizationService(orgId, serviceId);
+  }
+
   async uploadExpertDP(expertId: string, file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
     const expert = await this.databaseService.findExpertById(expertId);
@@ -365,11 +405,10 @@ export class AdminPanelService {
   async getOrganizationExperts(orgId: string) {
     const org = await this.databaseService.findOrganizationById(orgId);
     if (!org) throw new NotFoundException('Organization not found');
-    return this.databaseService.findOrganizationExperts(orgId);
+    return this.databaseService.findOrganizationExperts(org.id);
   }
 
   async getExpertDetails(orgId: string, expertId: string) {
-    // We could verify the expert belongs to the org here, but for admin it's fine
     const expert = await this.databaseService.findExpertById(expertId);
     if (!expert) throw new NotFoundException('Expert not found');
     return expert;
@@ -842,8 +881,10 @@ export class AdminPanelService {
 
   // Content Moderation APIs
   async removeReview(reviewId: string) {
-    // TODO: Implement actual database update
+    const result = await this.databaseService.deleteReview(reviewId);
+    if (!result) throw new NotFoundException('Review not found');
     return {
+      success: true,
       message: 'Review removed successfully',
       reviewId,
       removedAt: new Date(),

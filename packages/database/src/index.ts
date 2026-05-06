@@ -11,3 +11,4 @@ export * from "./schema/verification";
 export * from "./schema/admin-panel";
 export * from "./schema/chat";
 export * from "./schema/services";
+export * from "./schema/reviews";

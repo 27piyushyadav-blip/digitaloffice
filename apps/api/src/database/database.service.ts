@@ -16,6 +16,7 @@ import {
   offers,
   offerItems,
   bookings,
+  reviews,
 } from '@repo/database';
 import { eq, and, desc, or, sql, isNull, inArray } from 'drizzle-orm';
 
@@ -597,6 +598,26 @@ export class DatabaseService {
       .leftJoin(client, eq(bookings.clientId, client.id))
       .where(and(...conditions))
       .orderBy(desc(bookings.createdAt));
+  }
+
+  async findReviewsByOrganizationId(organizationId: string) {
+    return await this.db
+      .select({
+        review: reviews,
+        client: client,
+      })
+      .from(reviews)
+      .leftJoin(client, eq(reviews.clientId, client.id))
+      .where(eq(reviews.organizationId, organizationId))
+      .orderBy(desc(reviews.createdAt));
+  }
+
+  async deleteReview(reviewId: string) {
+    const deleted = await this.db
+      .delete(reviews)
+      .where(eq(reviews.id, reviewId))
+      .returning();
+    return deleted.length > 0;
   }
 
   async findBookingById(expertId: string, bookingId: string) {

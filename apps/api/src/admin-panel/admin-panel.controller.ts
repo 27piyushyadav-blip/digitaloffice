@@ -309,6 +309,41 @@ export class AdminPanelController {
     return this.adminPanelService.uploadOrganizationDocument(orgId, file, body.title, body.category);
   }
 
+  @Get('/organizations/:orgId/reviews')
+  async getOrganizationReviews(@Param('orgId') orgId: string) {
+    return this.adminPanelService.getOrganizationReviews(orgId);
+  }
+
+  @Get('/organizations/:orgId/services')
+  async getOrganizationServices(@Param('orgId') orgId: string) {
+    return this.adminPanelService.getOrganizationServices(orgId);
+  }
+
+  @Post('/organizations/:orgId/services')
+  async createOrganizationService(
+    @Param('orgId') orgId: string,
+    @Body() serviceData: any
+  ) {
+    return this.adminPanelService.createOrganizationService(orgId, serviceData);
+  }
+
+  @Put('/organizations/:orgId/services/:serviceId')
+  async updateOrganizationService(
+    @Param('orgId') orgId: string,
+    @Param('serviceId') serviceId: string,
+    @Body() updateData: any
+  ) {
+    return this.adminPanelService.updateOrganizationService(orgId, serviceId, updateData);
+  }
+
+  @Delete('/organizations/:orgId/services/:serviceId')
+  async deleteOrganizationService(
+    @Param('orgId') orgId: string,
+    @Param('serviceId') serviceId: string
+  ) {
+    return this.adminPanelService.deleteOrganizationService(orgId, serviceId);
+  }
+
   @Get('/organizations/:orgId/experts')
   async getOrganizationExperts(@Param('orgId') orgId: string) {
     return this.adminPanelService.getOrganizationExperts(orgId);
