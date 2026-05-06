@@ -462,19 +462,27 @@ export class AdminPanelService {
   }
 
   async getOrganizationServices(orgId: string) {
-    return this.databaseService.listOrganizationServices(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    return this.databaseService.listOrganizationServices(org.userId);
   }
 
   async createOrganizationService(orgId: string, data: any) {
-    return this.databaseService.createOrganizationService(orgId, data);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    return this.databaseService.createOrganizationService(org.userId, data);
   }
 
   async updateOrganizationService(orgId: string, serviceId: string, data: any) {
-    return this.databaseService.updateOrganizationService(orgId, serviceId, data);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    return this.databaseService.updateOrganizationService(org.userId, serviceId, data);
   }
 
   async deleteOrganizationService(orgId: string, serviceId: string) {
-    return this.databaseService.deleteOrganizationService(orgId, serviceId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    return this.databaseService.deleteOrganizationService(org.userId, serviceId);
   }
 
   async uploadExpertDP(expertId: string, file: Express.Multer.File) {
