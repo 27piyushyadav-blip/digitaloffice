@@ -162,17 +162,6 @@ export class DatabaseService {
     return [];
   }
 
-  // Organization related queries
-  async findOrganizationById(organizationId: string) {
-    const org = await this.ensureOrganizationProfile(organizationId);
-    if (!org) return null;
-    
-    return {
-      ...org,
-      email: (org as any).officialEmail || null,
-    };
-  }
-
   async ensureOrganizationProfile(userId: string) {
     const [existing] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.userId, userId));
     if (existing) return existing;
@@ -401,6 +390,43 @@ export class DatabaseService {
   async findOrganizationByProfileId(profileId: string) {
     let [org] = await this.db.select().from(organizationProfile).where(eq(organizationProfile.id, profileId));
     return org || null;
+  }
+
+  async findOrganizationById(userId: string) {
+    const [org] = await this.db
+      .select({
+        ...organizationProfile,
+        email: organisation.email,
+        ownerName: organisation.name,
+        isBlocked: organisation.isBlocked,
+        blockedUntil: organisation.blockedUntil,
+        messagingDisabled: organisation.messagingDisabled,
+      })
+      .from(organizationProfile)
+      .innerJoin(organisation, eq(organizationProfile.userId, organisation.id))
+      .where(eq(organizationProfile.userId, userId))
+      .limit(1);
+    return org;
+  }
+
+  async updateExpertStatus(expertId: string, status: string) {
+    await this.db.update(expertProfile)
+      .set({ verificationStatus: status, updatedAt: new Date() })
+      .where(eq(expertProfile.userId, expertId));
+    return { expertId, status };
+  }
+
+  async requestRefund(bookingId: string, amount: string, reason: string) {
+    const [updated] = await this.db.update(bookings)
+      .set({ 
+        paymentStatus: 'refunded', 
+        status: 'cancelled',
+        cancellationReason: reason,
+        updatedAt: new Date() 
+      })
+      .where(eq(bookings.id, bookingId))
+      .returning();
+    return updated;
   }
 
   async findOrganizationExperts(organizationProfileId: string) {
@@ -643,6 +669,26 @@ export class DatabaseService {
   async getUnreadCount(expertId: string) {
     // TODO: Implement actual database query
     return { unreadCount: 0, totalCount: 0 };
+  }
+
+  async toggleUserBlock(userId: string, userType: 'client' | 'expert' | 'organisation', isBlocked: boolean, blockedUntil?: Date | null) {
+    const table = userType === 'client' ? client : userType === 'expert' ? expert : organisation;
+    const [updated] = await this.db
+      .update(table)
+      .set({ isBlocked, blockedUntil, updatedAt: new Date() })
+      .where(eq(table.id, userId))
+      .returning();
+    return updated;
+  }
+
+  async toggleMessaging(userId: string, userType: 'client' | 'expert' | 'organisation', messagingDisabled: boolean) {
+    const table = userType === 'client' ? client : userType === 'expert' ? expert : organisation;
+    const [updated] = await this.db
+      .update(table)
+      .set({ messagingDisabled, updatedAt: new Date() })
+      .where(eq(table.id, userId))
+      .returning();
+    return updated;
   }
 
   // ==================== CHAT QUERIES ====================

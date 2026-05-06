@@ -438,6 +438,31 @@ export class AdminPanelController {
     return this.adminPanelService.uploadExpertDocument(expertId, file, body?.title, body?.category);
   }
 
+  // Administrative Actions
+  @Post('/refunds/request')
+  async requestRefund(
+    @Body() refundData: { bookingId: string; amount: string; reason: string },
+  ) {
+    return this.adminPanelService.requestRefund(refundData.bookingId, refundData.amount, refundData.reason);
+  }
+
+  @Post('/users/:userId/messaging')
+  async toggleMessaging(
+    @Param('userId') userId: string,
+    @Body() data: { userType: 'client' | 'expert' | 'organisation'; disabled: boolean },
+  ) {
+    return this.adminPanelService.toggleMessaging(userId, data.userType, data.disabled);
+  }
+
+  @Post('/users/:userId/block')
+  async toggleUserBlock(
+    @Param('userId') userId: string,
+    @Body() data: { userType: 'client' | 'expert' | 'organisation'; blocked: boolean; until?: string },
+  ) {
+    const until = data.until ? new Date(data.until) : null;
+    return this.adminPanelService.toggleUserBlock(userId, data.userType, data.blocked, until);
+  }
+
   // Profile Change Approval APIs
   @Get('/profile-changes')
   async getPendingProfileChanges() {

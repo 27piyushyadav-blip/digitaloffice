@@ -46,24 +46,11 @@ export class AdminPanelService {
   }
 
   async approveExpert(expertId: string) {
-    // TODO: Implement actual database update
-    return {
-      message: 'Expert approved successfully',
-      expertId,
-      approvedAt: new Date(),
-      status: 'verified',
-    };
+    return this.databaseService.updateExpertStatus(expertId, 'LIVE');
   }
 
   async rejectExpert(expertId: string, rejectData: any) {
-    // TODO: Implement actual database update
-    return {
-      message: 'Expert rejected',
-      expertId,
-      reason: rejectData.reason,
-      rejectedAt: new Date(),
-      status: 'rejected',
-    };
+    return this.databaseService.updateExpertStatus(expertId, 'REJECTED');
   }
 
   async getAllExperts(status?: string, category?: string, organization?: string) {
@@ -105,15 +92,20 @@ export class AdminPanelService {
   }
 
   async suspendExpert(expertId: string, suspendData: any) {
-    // TODO: Implement actual database update
-    return {
-      message: 'Expert suspended',
-      expertId,
-      reason: suspendData.reason,
-      suspendedAt: new Date(),
-      suspendedUntil: suspendData.suspendedUntil,
-      status: 'suspended',
-    };
+    const until = suspendData.suspendedUntil ? new Date(suspendData.suspendedUntil) : null;
+    return this.databaseService.toggleUserBlock(expertId, 'expert', true, until);
+  }
+
+  async toggleMessaging(userId: string, userType: 'client' | 'expert' | 'organisation', disabled: boolean) {
+    return this.databaseService.toggleMessaging(userId, userType, disabled);
+  }
+
+  async toggleUserBlock(userId: string, userType: 'client' | 'expert' | 'organisation', blocked: boolean, until?: Date | null) {
+    return this.databaseService.toggleUserBlock(userId, userType, blocked, until);
+  }
+
+  async requestRefund(bookingId: string, amount: string, reason: string) {
+    return this.databaseService.requestRefund(bookingId, amount, reason);
   }
 
   // Organization Verification APIs
@@ -239,15 +231,8 @@ export class AdminPanelService {
   }
 
   async suspendOrganization(orgId: string, suspendData: any) {
-    // TODO: Implement actual database update
-    return {
-      message: 'Organization suspended',
-      orgId,
-      reason: suspendData.reason,
-      suspendedAt: new Date(),
-      suspendedUntil: suspendData.suspendedUntil,
-      status: 'suspended',
-    };
+    const until = suspendData.suspendedUntil ? new Date(suspendData.suspendedUntil) : null;
+    return this.databaseService.toggleUserBlock(orgId, 'organisation', true, until);
   }
 
   async updateOrganization(orgId: string, updateData: any) {

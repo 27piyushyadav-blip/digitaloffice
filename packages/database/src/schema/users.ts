@@ -14,6 +14,8 @@ const getColumns = () => ({
   refreshToken: text("refresh_token"),
   consent: boolean("consent").default(false).notNull(),
   isBlocked: boolean("is_blocked").default(false).notNull(),
+  blockedUntil: timestamp("blocked_until"),
+  messagingDisabled: boolean("messaging_disabled").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
