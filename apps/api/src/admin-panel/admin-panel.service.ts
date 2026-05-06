@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 
 @Injectable()
 export class AdminPanelService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService,
+  ) {}
 
   // Admin Authentication APIs
   async getAdminProfile(adminId: string) {
@@ -191,10 +195,16 @@ export class AdminPanelService {
     const allExperts = await this.databaseService.findMultipleOrganizationsExperts(orgIds);
     
     // Group experts by organizationId
-    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const formatUrl = (url: string | null) => {
       if (!url) return null;
-      if (url.startsWith('http')) return url;
+      if (url.startsWith('http')) {
+        if (url.includes('/uploads/')) {
+          const path = url.split('/uploads/')[1];
+          return `${baseUrl}/uploads/${path}`;
+        }
+        return url;
+      }
       return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
     };
 
@@ -228,7 +238,7 @@ export class AdminPanelService {
         location: org.location,
         description: org.description,
         logo: formatUrl(org.logo),
-        introVideo: org.introVideo,
+        introVideo: formatUrl(org.introVideo),
         website: org.website,
         memberCount: org.memberCount,
         rating: org.rating,
@@ -239,12 +249,15 @@ export class AdminPanelService {
         isVisible: org.isVisible ?? true,
         rejectionReason: org.rejectionReason,
         joinedAt: org.createdAt,
-        documents: org.documents,
+        documents: (org.documents as any[])?.map(doc => ({
+          ...doc,
+          url: formatUrl(doc.url)
+        })) || [],
         tagline: org.tagline,
         category: org.category,
         subdomain: org.subdomain,
         aboutUs: org.aboutUs,
-        coverImageUrl: org.coverImageUrl,
+        coverImageUrl: formatUrl(org.coverImageUrl),
         officialEmail: org.officialEmail,
         phoneNumber: org.phoneNumber,
         websiteUrl: org.websiteUrl,
@@ -405,7 +418,7 @@ export class AdminPanelService {
     const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
-    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/organization-logos/${file.filename}`;
     
     // Update multiple fields for backward compatibility
@@ -423,7 +436,7 @@ export class AdminPanelService {
     const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
-    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/organization-videos/${file.filename}`;
     await this.databaseService.updateOrganizationProfile(org.userId, { introVideo: fileUrl });
     return { success: true, url: fileUrl };
@@ -434,7 +447,7 @@ export class AdminPanelService {
     const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
-    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/organization-docs/${file.filename}`;
     
     const existingDocs = org && Array.isArray(org.documents) ? org.documents : [];
@@ -480,7 +493,7 @@ export class AdminPanelService {
     const expert = await this.databaseService.findExpertById(expertId);
     if (!expert) throw new NotFoundException('Expert not found');
 
-    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/profile-images/${file.filename}`;
     
     // Update multiple fields for backward compatibility
@@ -498,7 +511,7 @@ export class AdminPanelService {
     const expert = await this.databaseService.findExpertById(expertId);
     if (!expert) throw new NotFoundException('Expert not found');
 
-    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/intro-videos/${file.filename}`;
     await this.databaseService.updateExpertProfile(expertId, { 
       videoUrl: fileUrl, 
@@ -513,7 +526,7 @@ export class AdminPanelService {
     const expert = await this.databaseService.findExpertById(expertId);
     if (!expert) throw new NotFoundException('Expert not found');
 
-    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/expert-docs/${file.filename}`;
     
     // In expertProfile, it might be nested under .profile
@@ -538,10 +551,16 @@ export class AdminPanelService {
     if (!org) throw new NotFoundException('Organization not found');
     const experts = await this.databaseService.findOrganizationExperts(org.id);
 
-    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const formatUrl = (url: string | null) => {
       if (!url) return null;
-      if (url.startsWith('http')) return url;
+      if (url.startsWith('http')) {
+        if (url.includes('/uploads/')) {
+          const path = url.split('/uploads/')[1];
+          return `${baseUrl}/uploads/${path}`;
+        }
+        return url;
+      }
       return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
     };
 
