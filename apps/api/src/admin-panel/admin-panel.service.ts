@@ -152,7 +152,9 @@ export class AdminPanelService {
   }
 
   async approveOrganization(orgId: string) {
-    await this.databaseService.updateOrganizationProfile(orgId, {
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    await this.databaseService.updateOrganizationProfile(org.userId, {
       verified: true,
       verificationStatus: 'VERIFIED',
     });
@@ -165,7 +167,9 @@ export class AdminPanelService {
   }
 
   async rejectOrganization(orgId: string, rejectData: any) {
-    await this.databaseService.updateOrganizationProfile(orgId, {
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
+    if (!org) throw new NotFoundException('Organization not found');
+    await this.databaseService.updateOrganizationProfile(org.userId, {
       verified: false,
       verificationStatus: 'REJECTED',
       rejectionReason: rejectData.reason,
@@ -338,13 +342,13 @@ export class AdminPanelService {
   }
 
   async getOrganizationDetails(orgId: string) {
-    const org = await this.databaseService.findOrganizationById(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
     return org;
   }
 
   async checkOrganizationDetails(orgId: string) {
-    const org = await this.databaseService.findOrganizationById(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
     const profileFields = [
@@ -398,14 +402,14 @@ export class AdminPanelService {
 
   async uploadOrganizationDP(orgId: string, file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
-    const org = await this.databaseService.findOrganizationById(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
     const baseUrl = process.env.APP_URL || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/organization-logos/${file.filename}`;
     
     // Update multiple fields for backward compatibility
-    await this.databaseService.updateOrganizationProfile(orgId, { 
+    await this.databaseService.updateOrganizationProfile(org.userId, { 
       logo: fileUrl, 
       logoUrl: fileUrl, 
       image: fileUrl 
@@ -416,18 +420,18 @@ export class AdminPanelService {
 
   async uploadOrganizationVideo(orgId: string, file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
-    const org = await this.databaseService.findOrganizationById(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
     const baseUrl = process.env.APP_URL || 'http://localhost:3000';
     const fileUrl = `${baseUrl}/uploads/organization-videos/${file.filename}`;
-    await this.databaseService.updateOrganizationProfile(orgId, { introVideo: fileUrl });
+    await this.databaseService.updateOrganizationProfile(org.userId, { introVideo: fileUrl });
     return { success: true, url: fileUrl };
   }
 
   async uploadOrganizationDocument(orgId: string, file: Express.Multer.File, title: string, category: string) {
     if (!file) throw new BadRequestException('No file uploaded');
-    const org = await this.databaseService.findOrganizationById(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
     const baseUrl = process.env.APP_URL || 'http://localhost:3000';
@@ -443,7 +447,9 @@ export class AdminPanelService {
       fileSize: `${(file.size / 1024).toFixed(2)} KB`
     };
     
-    await this.databaseService.updateOrganizationProfile(orgId, { documents: [...existingDocs, newDoc] });
+    await this.databaseService.updateOrganizationProfile(org.userId, { 
+      documents: [...existingDocs, newDoc] 
+    });
     return { success: true, url: fileUrl, document: newDoc };
   }
 
@@ -528,7 +534,7 @@ export class AdminPanelService {
   }
 
   async getOrganizationExperts(orgId: string) {
-    const org = await this.databaseService.findOrganizationById(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
     const experts = await this.databaseService.findOrganizationExperts(org.id);
 
@@ -592,7 +598,7 @@ export class AdminPanelService {
   }
 
   async addExpertToOrganization(orgId: string, expertId: string) {
-    const org = await this.databaseService.findOrganizationById(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
     
     const expert = await this.databaseService.findExpertById(expertId);
@@ -602,7 +608,7 @@ export class AdminPanelService {
   }
 
   async removeExpertFromOrganization(orgId: string, expertId: string) {
-    const org = await this.databaseService.findOrganizationById(orgId);
+    const org = await this.databaseService.findOrganizationByProfileId(orgId);
     if (!org) throw new NotFoundException('Organization not found');
 
     const result = await this.databaseService.removeExpertFromOrganization(orgId, expertId);
