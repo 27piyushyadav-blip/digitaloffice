@@ -92,7 +92,7 @@ export class DirectoryService {
     };
   }
 
-  private mapOrganizationToPublicProfile(org: any) {
+  private mapOrganizationToPublicProfile(org: any, services: any[] = []) {
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
       if (url.startsWith('http')) return url;
@@ -115,7 +115,18 @@ export class DirectoryService {
         rating: typeof org.rating === 'number' ? org.rating : 4.5,
         reviewCount: 15,
         documents: org.documents || [],
-        tags: org.tags || []
+        tags: org.tags || [],
+        services: services.map(s => ({
+          id: s.id,
+          name: s.name,
+          description: s.description || null,
+          basePrice: Number(s.basePrice) || 0,
+          durationMinutes: s.durationMinutes || 60,
+          imageUrl: toFullUrl(s.imageUrl),
+          isActive: s.isActive,
+          categoryId: s.categoryId || null,
+        })),
+        serviceCount: services.length,
     };
   }
 
@@ -125,19 +136,21 @@ export class DirectoryService {
     // Safety filter: ensure only visible organizations are processed
     const visibleOrgs = rawOrgs.filter(org => org.isVisible !== false);
 
-    // For each organization, fetch real expert count if not already accurate
-    const orgsWithCount = await Promise.all(visibleOrgs.map(async (org) => {
-      const experts = await this.databaseService.findOrganizationExperts(org.id);
-      return {
-        ...org,
-        memberCount: experts.length
-      };
+    // For each organization, fetch real expert count and services
+    const orgsWithData = await Promise.all(visibleOrgs.map(async (org) => {
+      const [experts, services] = await Promise.all([
+        this.databaseService.findOrganizationExperts(org.id),
+        this.databaseService.listOrganizationServicesByProfileId(org.id),
+      ]);
+      return { ...org, memberCount: experts.length, services };
     }));
     
     return {
       status: 'success',
       data: {
-        organizations: orgsWithCount.map(org => this.mapOrganizationToPublicProfile(org)),
+        organizations: orgsWithData.map(({ services, ...org }) =>
+          this.mapOrganizationToPublicProfile(org, services)
+        ),
         total: rawOrgs.length,
         hasMore: false,
       }
@@ -160,15 +173,109 @@ export class DirectoryService {
     
     if (!rawOrg) return null;
     
-    // Fetch affiliated experts (only visible ones)
-    const rawExperts = await this.databaseService.findOrganizationExperts(rawOrg.id, true);
+    // Fetch affiliated experts (only visible ones) and services in parallel
+    const [rawExperts, services] = await Promise.all([
+      this.databaseService.findOrganizationExperts(rawOrg.id, true),
+      this.databaseService.listOrganizationServicesByProfileId(rawOrg.id),
+    ]);
+
     const experts = rawExperts.map((item) => this.mapExpertToPublicProfile(item));
-    
+
+    // Resolve banner image URLs
+    const toFullUrl = (url: string | null) => {
+      if (!url) return null;
+      if (url.startsWith('http')) return url;
+      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+      return `${baseUrl}${url}`;
+    };
+
+    const rawBanners = rawOrg.banners || { horizontal: [], vertical: [] };
+    const banners = {
+      horizontal: (rawBanners.horizontal || []).map((b: any) => ({
+        ...b,
+        imageUrl: toFullUrl(b.imageUrl),
+      })),
+      vertical: (rawBanners.vertical || []).map((b: any) => ({
+        ...b,
+        imageUrl: toFullUrl(b.imageUrl),
+      })),
+    };
+
     return {
       status: 'success',
       data: {
-        ...this.mapOrganizationToPublicProfile(rawOrg),
-        experts: experts
+        ...this.mapOrganizationToPublicProfile(rawOrg, services),
+        experts,
+        banners,
+      }
+    };
+  }
+
+  // ─── Dedicated sub-resource APIs ───────────────────────────────────────────
+
+  private async resolveOrg(idOrSubdomain: string) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idOrSubdomain);
+    let org = null;
+    if (isUuid) org = await this.databaseService.findOrganizationByProfileId(idOrSubdomain);
+    if (!org)    org = await this.databaseService.findOrganizationBySubdomain(idOrSubdomain);
+    return org;
+  }
+
+  async getOrganizationServices(idOrSubdomain: string) {
+    const org = await this.resolveOrg(idOrSubdomain);
+    if (!org) return null;
+
+    const toFullUrl = (url: string | null) => {
+      if (!url) return null;
+      if (url.startsWith('http')) return url;
+      return `${this.configService.get('APP_URL') || 'http://localhost:3000'}${url}`;
+    };
+
+    const services = await this.databaseService.listOrganizationServicesByProfileId(org.id);
+
+    return {
+      status: 'success',
+      data: {
+        services: services.map(s => ({
+          id: s.id,
+          name: s.name,
+          description: (s as any).description || null,
+          basePrice: Number(s.basePrice) || 0,
+          durationMinutes: s.durationMinutes || 60,
+          imageUrl: toFullUrl((s as any).imageUrl),
+          isActive: s.isActive,
+          categoryId: s.categoryId || null,
+        })),
+        total: services.length,
+      }
+    };
+  }
+
+  async getOrganizationExperts(idOrSubdomain: string, serviceFilter?: string) {
+    const org = await this.resolveOrg(idOrSubdomain);
+    if (!org) return null;
+
+    const rawExperts = await this.databaseService.findOrganizationExperts(org.id, true);
+    let experts = rawExperts.map(item => this.mapExpertToPublicProfile(item));
+
+    // Filter by service name if provided
+    if (serviceFilter) {
+      const filterLower = serviceFilter.toLowerCase();
+      experts = experts.filter(e =>
+        Array.isArray(e.services) &&
+        e.services.some((s: any) => {
+          const name = typeof s === 'string' ? s : s?.name || '';
+          return name.toLowerCase().includes(filterLower);
+        })
+      );
+    }
+
+    return {
+      status: 'success',
+      data: {
+        experts,
+        total: experts.length,
+        filteredByService: serviceFilter || null,
       }
     };
   }

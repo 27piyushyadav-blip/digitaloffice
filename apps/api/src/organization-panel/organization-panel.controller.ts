@@ -387,6 +387,85 @@ export class OrganizationPanelController {
     return this.organizationPanelService.deleteService(organizationId, serviceId);
   }
 
+  @Get('/services/categories')
+  async getServiceCategories(@GetCurrentUserId() organizationId: string) {
+    return this.organizationPanelService.getServiceCategories(organizationId);
+  }
+
+  @Post('/services/categories')
+  async createServiceCategory(
+    @GetCurrentUserId() organizationId: string,
+    @Body('name') name: string,
+  ) {
+    return this.organizationPanelService.createServiceCategory(organizationId, name);
+  }
+
+  @Delete('/services/categories/:id')
+  async deleteServiceCategory(
+    @GetCurrentUserId() organizationId: string,
+    @Param('id') categoryId: string,
+  ) {
+    return this.organizationPanelService.deleteServiceCategory(organizationId, categoryId);
+  }
+
+  @Put('/services/categories/:id/layout')
+  async updateServiceCategoryLayout(
+    @GetCurrentUserId() organizationId: string,
+    @Param('id') categoryId: string,
+    @Body() layout: any,
+  ) {
+    return this.organizationPanelService.updateServiceCategoryLayout(organizationId, categoryId, layout);
+  }
+
+  @Get('/banners')
+  async getBanners(@GetCurrentUserId() organizationId: string) {
+    return this.organizationPanelService.getOrganizationBanners(organizationId);
+  }
+
+  @Put('/banners')
+  async updateBanners(
+    @GetCurrentUserId() organizationId: string,
+    @Body() bannersData: any,
+  ) {
+    return this.organizationPanelService.updateOrganizationBanners(organizationId, bannersData);
+  }
+
+  @Post('/banners/upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-banners',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
+          return cb(new BadRequestException('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB
+      },
+    }),
+  )
+  async uploadBanner(
+    @GetCurrentUserId() organizationId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-banners/${file.filename}`;
+    return { imageUrl: fileUrl };
+  }
+
+
+
   @Post('/services/upload-image')
   @UseInterceptors(
     FileInterceptor('file', {

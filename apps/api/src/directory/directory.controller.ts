@@ -1,4 +1,4 @@
-import { Controller, Get, Param, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Param, Query, NotFoundException } from '@nestjs/common';
 import { DirectoryService } from './directory.service';
 import { Public } from '../common/decorators/public.decorator';
 
@@ -36,5 +36,28 @@ export class DirectoryController {
         throw new NotFoundException('Organization not found or not currently live');
     }
     return org;
+  }
+
+  @Public()
+  @Get('organizations/:id/services')
+  async getOrganizationServices(@Param('id') id: string) {
+    const result = await this.directoryService.getOrganizationServices(id);
+    if (!result) {
+        throw new NotFoundException('Organization not found');
+    }
+    return result;
+  }
+
+  @Public()
+  @Get('organizations/:id/experts')
+  async getOrganizationExperts(
+    @Param('id') id: string,
+    @Query('service') service?: string,
+  ) {
+    const result = await this.directoryService.getOrganizationExperts(id, service);
+    if (!result) {
+        throw new NotFoundException('Organization not found');
+    }
+    return result;
   }
 }

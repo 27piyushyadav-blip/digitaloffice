@@ -518,7 +518,15 @@ const organizationProfileId = orgProfile[0].id;
         day: a.dayOfWeek?.substring(0, 3) || 'Day',
         time: `${a.startTime} - ${a.endTime}`
       })),
-      services: (details.services as any[] || []).map(s => s.name || s),
+      services: (details.services as any[] || []).map(s =>
+        typeof s === 'string'
+          ? { name: s, price: 0, duration: 60 }
+          : {
+              name: s.name || '',
+              price: Number(s.price ?? s.videoPrice ?? s.clinicPrice ?? 0),
+              duration: Number(s.duration) || 60,
+            }
+      ),
     };
   }
 
@@ -770,8 +778,10 @@ const organizationProfileId = orgProfile[0].id;
   // Services Management APIs
   async getServices(organizationId: string) {
     const services = await this.databaseService.listOrganizationServices(organizationId);
+    const org = await this.databaseService.ensureOrganizationProfile(organizationId);
     return {
       services,
+      defaultLayout: org?.defaultLayout || { horizontal: [], vertical: [] },
       total: services.length,
       active: services.filter((s: any) => s.isActive).length,
     };
@@ -796,6 +806,49 @@ const organizationProfileId = orgProfile[0].id;
     if (!ok) throw new BadRequestException('Service not found');
     return { message: 'Service deleted successfully', serviceId };
   }
+
+  async getServiceCategories(organizationId: string) {
+    const categories = await this.databaseService.listOrganizationServiceCategories(organizationId);
+    return { categories };
+  }
+
+  async createServiceCategory(organizationId: string, name: string) {
+    if (!name) throw new BadRequestException('Category name is required');
+    const category = await this.databaseService.createOrganizationServiceCategory(organizationId, name);
+    if (!category) throw new BadRequestException('Failed to create category');
+    return { message: 'Category created successfully', category };
+  }
+
+  async deleteServiceCategory(organizationId: string, categoryId: string) {
+    const ok = await this.databaseService.deleteOrganizationServiceCategory(organizationId, categoryId);
+    if (!ok) throw new BadRequestException('Category not found');
+    return { message: 'Category deleted successfully', categoryId };
+  }
+
+  async updateServiceCategoryLayout(organizationId: string, categoryId: string, layout: any) {
+    if (categoryId === 'default') {
+      const updatedProfile = await this.databaseService.updateOrganizationDefaultLayout(organizationId, layout);
+      if (!updatedProfile) throw new BadRequestException('Organization profile not found');
+      return { message: 'Default layout updated successfully', defaultLayout: updatedProfile.defaultLayout };
+    }
+    const updated = await this.databaseService.updateOrganizationServiceCategoryLayout(organizationId, categoryId, layout);
+    if (!updated) throw new BadRequestException('Category not found');
+    return { message: 'Layout updated successfully', category: updated };
+  }
+
+  async getOrganizationBanners(organizationId: string) {
+    const banners = await this.databaseService.getOrganizationBanners(organizationId);
+    if (!banners) throw new BadRequestException('Organization profile not found');
+    return { banners };
+  }
+
+  async updateOrganizationBanners(organizationId: string, bannersData: any) {
+    const updated = await this.databaseService.updateOrganizationBanners(organizationId, bannersData);
+    if (!updated) throw new BadRequestException('Organization profile not found');
+    return { message: 'Banners updated successfully', banners: updated.banners };
+  }
+
+
 
   // Booking Management APIs
   async getOrganizationBookings(organizationId: string, status?: string) {

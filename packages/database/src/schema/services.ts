@@ -13,6 +13,7 @@ export const organizationServiceCategories = pgTable(
       .references(() => organizationProfile.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     sortOrder: integer("sort_order").default(0).notNull(),
+    layout: json("layout").$type<{ horizontal: string[]; vertical: string[] }>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
   },

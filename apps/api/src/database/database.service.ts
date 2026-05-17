@@ -207,6 +207,17 @@ export class DatabaseService {
       .orderBy(desc(organizationServices.updatedAt));
   }
 
+  async listOrganizationServicesByProfileId(organizationProfileId: string) {
+    return await this.db
+      .select()
+      .from(organizationServices)
+      .where(and(
+        eq(organizationServices.organizationId, organizationProfileId),
+        eq(organizationServices.isActive, true)
+      ))
+      .orderBy(desc(organizationServices.updatedAt));
+  }
+
   async createOrganizationService(organizationUserId: string, data: any) {
     const org = await this.ensureOrganizationProfile(organizationUserId);
     if (!org) return null;
@@ -263,6 +274,107 @@ export class DatabaseService {
 
     return deleted.length > 0;
   }
+
+  async listOrganizationServiceCategories(organizationUserId: string) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return [];
+
+    return await this.db
+      .select()
+      .from(organizationServiceCategories)
+      .where(eq(organizationServiceCategories.organizationId, org.id))
+      .orderBy(desc(organizationServiceCategories.createdAt));
+  }
+
+  async createOrganizationServiceCategory(organizationUserId: string, name: string) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+
+    const [created] = await this.db
+      .insert(organizationServiceCategories)
+      .values({
+        organizationId: org.id,
+        name: name,
+        sortOrder: 0,
+      })
+      .returning();
+
+    return created || null;
+  }
+
+  async deleteOrganizationServiceCategory(organizationUserId: string, id: string) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return false;
+
+    const deleted = await this.db
+      .delete(organizationServiceCategories)
+      .where(and(
+        eq(organizationServiceCategories.id, id),
+        eq(organizationServiceCategories.organizationId, org.id)
+      ))
+      .returning();
+
+    return deleted.length > 0;
+  }
+
+  async updateOrganizationServiceCategoryLayout(organizationUserId: string, categoryId: string, layout: any) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+
+    const [updated] = await this.db
+      .update(organizationServiceCategories)
+      .set({
+        layout: layout,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(organizationServiceCategories.id, categoryId),
+        eq(organizationServiceCategories.organizationId, org.id)
+      ))
+      .returning();
+
+    return updated || null;
+  }
+
+  async updateOrganizationDefaultLayout(organizationUserId: string, layout: any) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+
+    const [updated] = await this.db
+      .update(organizationProfile)
+      .set({
+        defaultLayout: layout,
+        updatedAt: new Date(),
+      })
+      .where(eq(organizationProfile.id, org.id))
+      .returning();
+
+    return updated || null;
+  }
+
+  async getOrganizationBanners(organizationUserId: string) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+    return org.banners || { horizontal: [], vertical: [] };
+  }
+
+  async updateOrganizationBanners(organizationUserId: string, banners: any) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+
+    const [updated] = await this.db
+      .update(organizationProfile)
+      .set({
+        banners: banners,
+        updatedAt: new Date(),
+      })
+      .where(eq(organizationProfile.id, org.id))
+      .returning();
+
+    return updated || null;
+  }
+
+
 
   async createOffer(data: {
     conversationId: string;
@@ -402,6 +514,7 @@ export class DatabaseService {
   }
 
   async findOrganizationById(userId: string) {
+    await this.ensureOrganizationProfile(userId);
     const [org] = await this.db
       .select({
         ...getTableColumns(organizationProfile),
