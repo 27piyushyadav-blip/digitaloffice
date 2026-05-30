@@ -94,6 +94,8 @@ export class OrganizationPanelService {
       bsbCode: 'BSB Code',
       bookingPolicy: 'Booking Policy',
       cancellationWindowHours: 'Cancellation Window',
+      products: 'Products',
+      features: 'Features',
     };
 
     for (const [field, displayName] of Object.entries(fieldMappings)) {
@@ -155,6 +157,8 @@ export class OrganizationPanelService {
       businessLicenseUrl: profileData.businessLicenseUrl !== undefined ? profileData.businessLicenseUrl : (existingProfile as any).businessLicenseUrl,
       tags: profileData.tags !== undefined ? profileData.tags : existingProfile.tags,
       verificationStatus: profileData.verificationStatus !== undefined ? profileData.verificationStatus : existingProfile.verificationStatus,
+      products: profileData.products !== undefined ? profileData.products : (existingProfile as any).products,
+      features: profileData.features !== undefined ? profileData.features : (existingProfile as any).features,
     });
 
     return {
@@ -894,25 +898,11 @@ const organizationProfileId = orgProfile[0].id;
   }
 
   async getBookingDetails(organizationId: string, bookingId: string) {
-    // TODO: Implement actual database query
-    return {
-      id: bookingId,
-      clientId: 'client_1',
-      clientName: 'John Doe',
-      clientEmail: 'john.doe@example.com',
-      clientPhone: '9876543210',
-      expertId: 'exp_1',
-      expertName: 'Dr. Sarah Johnson',
-      service: 'Legal Consultation',
-      scheduledDate: new Date('2024-03-10T14:00:00Z'),
-      duration: 60,
-      amount: 2000,
-      status: 'CONFIRMED',
-      paymentStatus: 'PAID',
-      meetingUrl: 'https://meet.example.com/room/123456',
-      notes: 'Client needs help with business registration',
-      createdAt: new Date('2024-03-08T10:00:00Z'),
-    };
+    const [booking] = await this.databaseService.findBookingById(bookingId);
+    if (!booking) {
+      throw new Error('Booking not found');
+    }
+    return booking;
   }
 
   async cancelBooking(organizationId: string, bookingId: string) {
@@ -935,6 +925,95 @@ const organizationProfileId = orgProfile[0].id;
       newExpertId: reassignData.expertId,
       newExpertName: 'Dr. Emily Davis',
       reassignedAt: new Date(),
+    };
+  }
+
+  async createVoiceCallBooking(organizationId: string, bookingData: any) {
+    const {
+      customerName,
+      customerPhone,
+      customerEmail,
+      customerNotes,
+      services,
+      expertId,
+      scheduledDate,
+      scheduledTime,
+      totalAmount,
+      paymentLink,
+      orderId,
+    } = bookingData;
+
+    if (!customerName || !customerPhone) {
+      throw new BadRequestException('Customer name and phone are required');
+    }
+    if (!services || services.length === 0) {
+      throw new BadRequestException('At least one service is required');
+    }
+
+    // Get org profile to associate booking
+    const org = await this.getProfile(organizationId);
+
+    // Create a client record for the customer if they don't exist
+    // For voice call orders, we'll use a placeholder client ID or create one
+    // For now, we'll use the organization ID as a reference since this is an organization-initiated booking
+    const clientId = organizationId; // This represents the organization creating the booking on behalf of customer
+
+    // Calculate total duration from services
+    const totalDuration = services.reduce((sum: number, s: any) => sum + (s.duration || 60), 0);
+
+    // Parse scheduled date and time to create a proper Date object
+    let scheduledDateTime: Date | null = null;
+    if (scheduledDate && scheduledTime) {
+      const [hours, minutes] = scheduledTime.split(':').map(Number);
+      const [period] = scheduledTime.split(' ');
+      let hour24 = hours;
+      if (period === 'PM' && hours !== 12) hour24 += 12;
+      if (period === 'AM' && hours === 12) hour24 = 0;
+
+      const dateObj = new Date(scheduledDate);
+      dateObj.setHours(hour24, minutes, 0, 0);
+      scheduledDateTime = dateObj;
+    }
+
+    // Create booking in database
+    const booking = await this.databaseService.createBooking({
+      clientId: clientId,
+      expertId: expertId || null,
+      organizationId: org.id,
+      service: services.map((s: any) => s.name).join(', '),
+      consultationType: 'offline', // Voice call orders are typically offline/in-person
+      scheduledDate: scheduledDateTime || new Date(),
+      duration: totalDuration,
+      amount: String(totalAmount),
+    });
+
+    return {
+      message: 'Voice call order created successfully',
+      booking: {
+        id: booking.id,
+        organizationId: org.id,
+        customer: {
+          name: customerName,
+          phone: customerPhone,
+          email: customerEmail || null,
+          notes: customerNotes || null,
+        },
+        services: services.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          price: s.price,
+          quantity: s.quantity || 1,
+          total: s.price * (s.quantity || 1),
+        })),
+        expertId: expertId || null,
+        scheduledDate: scheduledDate || null,
+        scheduledTime: scheduledTime || null,
+        totalAmount: totalAmount || 0,
+        paymentLink: paymentLink || null,
+        status: booking.status,
+        paymentStatus: booking.paymentStatus,
+        createdAt: booking.createdAt,
+      },
     };
   }
 
@@ -1090,5 +1169,72 @@ const organizationProfileId = orgProfile[0].id;
   async getMessages(userId: string, conversationId: string, page: number = 1, limit: number = 50) {
     // In a real system, you'd verify the conversation belongs to the organization here
     return await this.databaseService.findMessagesByConversationId(conversationId, page, limit);
+  }
+
+  // Refund request related methods
+  async createRefundRequest(organizationId: string, data: {
+    bookingId: string;
+    amount: string;
+    reason: string;
+    refundType: string;
+    paymentMethod?: string;
+    metadata?: any;
+  }) {
+    // Fetch the booking to get the clientId and organizationId
+    const booking = await this.databaseService.findBookingById(data.bookingId);
+    if (!booking) {
+      throw new Error('Booking not found');
+    }
+
+    return this.databaseService.createRefundRequest({
+      bookingId: data.bookingId,
+      clientId: booking.clientId,
+      organizationId: booking.organizationId, // Use the booking's organizationId
+      amount: data.amount,
+      reason: data.reason,
+      refundType: data.refundType,
+      paymentMethod: data.paymentMethod,
+      metadata: data.metadata,
+    });
+  }
+
+  async getOrganizationRefundRequests(organizationId: string, status?: string) {
+    return this.databaseService.getRefundRequests(organizationId, status);
+  }
+
+  async updateRefundStatus(refundId: string, status: string, rejectionReason?: string) {
+    return this.databaseService.updateRefundStatus(refundId, status, rejectionReason);
+  }
+
+  // Edit service request related methods
+  async createEditServiceRequest(organizationId: string, data: {
+    bookingId: string;
+    clientId: string;
+    originalService: string;
+    originalAmount: string;
+    newService: string;
+    newAmount: string;
+    reason: string;
+    metadata?: any;
+  }) {
+    return this.databaseService.createEditServiceRequest({
+      bookingId: data.bookingId,
+      clientId: data.clientId,
+      organizationId,
+      originalService: data.originalService,
+      originalAmount: data.originalAmount,
+      newService: data.newService,
+      newAmount: data.newAmount,
+      reason: data.reason,
+      metadata: data.metadata,
+    });
+  }
+
+  async getOrganizationEditServiceRequests(organizationId: string, status?: string) {
+    return this.databaseService.getEditServiceRequests(organizationId, status);
+  }
+
+  async updateEditServiceStatus(requestId: string, status: string, rejectionReason?: string) {
+    return this.databaseService.updateEditServiceStatus(requestId, status, rejectionReason);
   }
 }

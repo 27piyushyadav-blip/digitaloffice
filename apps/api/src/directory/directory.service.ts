@@ -102,13 +102,18 @@ export class DirectoryService {
 
     return {
         _id: org.id,
+        userId: org.userId, // This is the organisation.id from the organisation table
         name: org.name,
         subdomain: org.subdomain,
         description: org.description || "",
+        tagline: org.tagline || "",
         industry: org.industry || "",
         location: org.location || "Online",
+        phone: org.phone || org.phoneNumber || null,
+        phoneNumber: org.phoneNumber || org.phone || null,
         website: org.website || "",
         logo: toFullUrl(org.logo),
+        coverImageUrl: toFullUrl(org.coverImageUrl),
         introVideo: toFullUrl(org.introVideo),
         verified: org.verified || org.verificationStatus === 'VERIFIED',
         memberCount: org.memberCount || 0,
@@ -116,6 +121,13 @@ export class DirectoryService {
         reviewCount: 15,
         documents: org.documents || [],
         tags: org.tags || [],
+        operatingHours: org.operatingHours || [],
+        products: (org.products || []).map((p: any) => ({
+          name: p.name || "",
+          price: p.price || "",
+          image: toFullUrl(p.image || null),
+        })),
+        features: org.features || [],
         services: services.map(s => ({
           id: s.id,
           name: s.name,
@@ -136,21 +148,23 @@ export class DirectoryService {
     // Safety filter: ensure only visible organizations are processed
     const visibleOrgs = rawOrgs.filter(org => org.isVisible !== false);
 
-    // For each organization, fetch real expert count and services
+    // For each organization, fetch real experts and services
     const orgsWithData = await Promise.all(visibleOrgs.map(async (org) => {
-      const [experts, services] = await Promise.all([
-        this.databaseService.findOrganizationExperts(org.id),
+      const [rawExperts, services] = await Promise.all([
+        this.databaseService.findOrganizationExperts(org.id, true),
         this.databaseService.listOrganizationServicesByProfileId(org.id),
       ]);
-      return { ...org, memberCount: experts.length, services };
+      const experts = rawExperts.map((item) => this.mapExpertToPublicProfile(item));
+      return { ...org, memberCount: experts.length, services, experts };
     }));
     
     return {
       status: 'success',
       data: {
-        organizations: orgsWithData.map(({ services, ...org }) =>
-          this.mapOrganizationToPublicProfile(org, services)
-        ),
+        organizations: orgsWithData.map(({ services, experts, ...org }) => ({
+          ...this.mapOrganizationToPublicProfile(org, services),
+          experts,
+        })),
         total: rawOrgs.length,
         hasMore: false,
       }
@@ -173,13 +187,20 @@ export class DirectoryService {
     
     if (!rawOrg) return null;
     
-    // Fetch affiliated experts (only visible ones) and services in parallel
-    const [rawExperts, services] = await Promise.all([
+    // Fetch affiliated experts (only visible ones), services, and reviews in parallel
+    const [rawExperts, services, rawReviews] = await Promise.all([
       this.databaseService.findOrganizationExperts(rawOrg.id, true),
       this.databaseService.listOrganizationServicesByProfileId(rawOrg.id),
+      this.databaseService.findReviewsByOrganizationId(rawOrg.id),
     ]);
 
     const experts = rawExperts.map((item) => this.mapExpertToPublicProfile(item));
+    const reviews = (rawReviews || []).map((r: any) => ({
+      name: r.client?.name || "Anonymous",
+      comment: r.review.comment,
+      rating: r.review.rating,
+      time: r.review.createdAt ? new Date(r.review.createdAt).toLocaleDateString() : "Recently",
+    }));
 
     // Resolve banner image URLs
     const toFullUrl = (url: string | null) => {
@@ -206,6 +227,7 @@ export class DirectoryService {
       data: {
         ...this.mapOrganizationToPublicProfile(rawOrg, services),
         experts,
+        reviews,
         banners,
       }
     };

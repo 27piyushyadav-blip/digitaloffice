@@ -73,6 +73,8 @@ export const organizationProfile = pgTable("organization_profile", {
     horizontal: Array<{ id: string; imageUrl: string; title?: string; link?: string }>;
     vertical: Array<{ id: string; imageUrl: string; title?: string; link?: string }>;
   }>(),
+  products: json("products").$type<Array<{ name: string; price: string; image: string }>>(),
+  features: json("features").$type<Array<{ title: string; description: string }>>(),
   verified: boolean("verified").default(false),
   memberCount: integer("member_count").default(0),
   rating: decimal("rating", { precision: 3, scale: 2 }).default("0"),

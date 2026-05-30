@@ -16,13 +16,17 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { AdminPanelService } from './admin-panel.service';
+import { DatabaseService } from '../database/database.service';
 import { AtGuard } from '../auth/guards/at.guard';
 import { GetCurrentUserId } from '../common/decorators';
 
 @Controller('admin')
 @UseGuards(AtGuard)
 export class AdminPanelController {
-  constructor(private readonly adminPanelService: AdminPanelService) {}
+  constructor(
+    private readonly adminPanelService: AdminPanelService,
+    private readonly databaseService: DatabaseService,
+  ) {}
 
   // Admin Authentication APIs
   @Get('auth/profile')
@@ -687,5 +691,21 @@ export class AdminPanelController {
   @Get('/logs')
   async getActivityLogs() {
     return this.adminPanelService.getActivityLogs();
+  }
+
+  // Database Migration APIs
+  @Post('/update-booking-organization-ids')
+  async updateBookingOrganizationIds() {
+    return this.databaseService.updateBookingOrganizationIds();
+  }
+
+  @Post('/update-refund-request-organization-ids')
+  async updateRefundRequestOrganizationIds() {
+    return this.databaseService.updateRefundRequestOrganizationIds();
+  }
+
+  @Post('/update-edit-service-request-organization-ids')
+  async updateEditServiceRequestOrganizationIds() {
+    return this.databaseService.updateEditServiceRequestOrganizationIds();
   }
 }

@@ -17,6 +17,8 @@ import {
   offerItems,
   bookings,
   reviews,
+  refundRequests,
+  editServiceRequests,
 } from '@repo/database';
 import { eq, and, desc, or, sql, isNull, inArray, getTableColumns } from 'drizzle-orm';
 
@@ -753,6 +755,55 @@ export class DatabaseService {
       .orderBy(desc(bookings.createdAt));
   }
 
+  async findClientBookings(clientId: string, status?: string) {
+    let conditions = [eq(bookings.clientId, clientId)];
+    if (status) conditions.push(eq(bookings.status, status));
+    
+    const result = await this.db
+      .select({
+        booking: bookings,
+        expert: expert,
+        organization: organisation,
+      })
+      .from(bookings)
+      .leftJoin(expert, eq(bookings.expertId, expert.id))
+      .leftJoin(organisation, eq(bookings.organizationId, organisation.id))
+      .where(and(...conditions))
+      .orderBy(desc(bookings.createdAt));
+    
+    console.log('Client bookings query result:', result);
+    return result;
+  }
+
+  async findBookingById(bookingId: string) {
+    const [booking] = await this.db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, bookingId))
+      .limit(1);
+    
+    return booking || null;
+  }
+
+  async updateBookingStatus(bookingId: string, status: string, additionalData?: any) {
+    const updateData: any = {
+      status,
+      updatedAt: new Date(),
+    };
+
+    if (additionalData) {
+      Object.assign(updateData, additionalData);
+    }
+
+    const [updated] = await this.db
+      .update(bookings)
+      .set(updateData)
+      .where(eq(bookings.id, bookingId))
+      .returning();
+    
+    return updated || null;
+  }
+
   async findReviewsByOrganizationId(organizationId: string) {
     return await this.db
       .select({
@@ -773,14 +824,222 @@ export class DatabaseService {
     return deleted.length > 0;
   }
 
-  async findBookingById(expertId: string, bookingId: string) {
-    // TODO: Implement actual database query
-    return null;
+  // Refund request related queries
+  async createRefundRequest(data: {
+    bookingId: string;
+    clientId: string;
+    organizationId: string;
+    amount: string;
+    reason: string;
+    refundType: string;
+    paymentMethod?: string;
+    metadata?: any;
+  }) {
+    const [refund] = await this.db
+      .insert(refundRequests)
+      .values({
+        bookingId: data.bookingId,
+        clientId: data.clientId,
+        organizationId: data.organizationId,
+        amount: data.amount,
+        reason: data.reason,
+        refundType: data.refundType,
+        paymentMethod: data.paymentMethod,
+        metadata: data.metadata,
+      })
+      .returning();
+    return refund;
   }
 
-  async updateBookingStatus(expertId: string, bookingId: string, status: string) {
-    // TODO: Implement actual database update
-    return { bookingId, status };
+  async getRefundRequests(organizationId?: string, status?: string) {
+    let conditions = [];
+    if (organizationId) conditions.push(eq(refundRequests.organizationId, organizationId));
+    if (status) conditions.push(eq(refundRequests.status, status));
+
+    console.log('getRefundRequests called with organizationId:', organizationId, 'status:', status);
+
+    const result = await this.db
+      .select({
+        refund: refundRequests,
+        client: client,
+        booking: bookings,
+      })
+      .from(refundRequests)
+      .leftJoin(client, eq(refundRequests.clientId, client.id))
+      .leftJoin(bookings, eq(refundRequests.bookingId, bookings.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(refundRequests.requestedAt));
+
+    console.log('getRefundRequests result:', result);
+    return result;
+  }
+
+  async updateRefundStatus(refundId: string, status: string, rejectionReason?: string) {
+    const updateData: any = {
+      status,
+      updatedAt: new Date(),
+    };
+
+    if (status === 'approved') {
+      updateData.approvedAt = new Date();
+    } else if (status === 'rejected') {
+      updateData.rejectedAt = new Date();
+      updateData.rejectionReason = rejectionReason;
+    } else if (status === 'processing') {
+      updateData.processedAt = new Date();
+    }
+
+    const [updated] = await this.db
+      .update(refundRequests)
+      .set(updateData)
+      .where(eq(refundRequests.id, refundId))
+      .returning();
+    
+    return updated || null;
+  }
+
+  async updateBookingOrganizationIds() {
+    // Update all bookings to use the correct organisation.id instead of organization_profile.id
+    const allBookings = await this.db.select().from(bookings);
+    
+    for (const booking of allBookings) {
+      if (booking.organizationId) {
+        // Find the organization_profile to get the userId (organisation.id)
+        const [orgProfile] = await this.db
+          .select()
+          .from(organizationProfile)
+          .where(eq(organizationProfile.id, booking.organizationId));
+        
+        if (orgProfile && orgProfile.userId) {
+          // Update the booking to use the userId (organisation.id)
+          await this.db
+            .update(bookings)
+            .set({ organizationId: orgProfile.userId })
+            .where(eq(bookings.id, booking.id));
+        }
+      }
+    }
+    
+    return { message: 'Updated booking organization IDs' };
+  }
+
+  async updateRefundRequestOrganizationIds() {
+    // Update all refund requests to use the correct organisation.id instead of organization_profile.id
+    const allRefundRequests = await this.db.select().from(refundRequests);
+    
+    for (const refundRequest of allRefundRequests) {
+      if (refundRequest.organizationId) {
+        // Find the organization_profile to get the userId (organisation.id)
+        const [orgProfile] = await this.db
+          .select()
+          .from(organizationProfile)
+          .where(eq(organizationProfile.id, refundRequest.organizationId));
+        
+        if (orgProfile && orgProfile.userId) {
+          // Update the refund request to use the userId (organisation.id)
+          await this.db
+            .update(refundRequests)
+            .set({ organizationId: orgProfile.userId })
+            .where(eq(refundRequests.id, refundRequest.id));
+        }
+      }
+    }
+    
+    return { message: 'Updated refund request organization IDs' };
+  }
+
+  async updateEditServiceRequestOrganizationIds() {
+    // Update all edit service requests to use the correct organisation.id instead of organization_profile.id
+    const allEditServiceRequests = await this.db.select().from(editServiceRequests);
+    
+    for (const editServiceRequest of allEditServiceRequests) {
+      if (editServiceRequest.organizationId) {
+        // Find the organization_profile to get the userId (organisation.id)
+        const [orgProfile] = await this.db
+          .select()
+          .from(organizationProfile)
+          .where(eq(organizationProfile.id, editServiceRequest.organizationId));
+        
+        if (orgProfile && orgProfile.userId) {
+          // Update the edit service request to use the userId (organisation.id)
+          await this.db
+            .update(editServiceRequests)
+            .set({ organizationId: orgProfile.userId })
+            .where(eq(editServiceRequests.id, editServiceRequest.id));
+        }
+      }
+    }
+    
+    return { message: 'Updated edit service request organization IDs' };
+  }
+
+  // Edit service request related queries
+  async createEditServiceRequest(data: {
+    bookingId: string;
+    clientId: string;
+    organizationId: string;
+    originalService: string;
+    originalAmount: string;
+    newService: string;
+    newAmount: string;
+    reason: string;
+    metadata?: any;
+  }) {
+    const [editRequest] = await this.db
+      .insert(editServiceRequests)
+      .values({
+        bookingId: data.bookingId,
+        clientId: data.clientId,
+        organizationId: data.organizationId,
+        originalService: data.originalService,
+        originalAmount: data.originalAmount,
+        newService: data.newService,
+        newAmount: data.newAmount,
+        reason: data.reason,
+        metadata: data.metadata,
+      })
+      .returning();
+    return editRequest;
+  }
+
+  async getEditServiceRequests(organizationId?: string, status?: string) {
+    let conditions = [];
+    if (organizationId) conditions.push(eq(editServiceRequests.organizationId, organizationId));
+    if (status) conditions.push(eq(editServiceRequests.status, status));
+    
+    return await this.db
+      .select({
+        editRequest: editServiceRequests,
+        client: client,
+        booking: bookings,
+      })
+      .from(editServiceRequests)
+      .leftJoin(client, eq(editServiceRequests.clientId, client.id))
+      .leftJoin(bookings, eq(editServiceRequests.bookingId, bookings.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(editServiceRequests.requestedAt));
+  }
+
+  async updateEditServiceStatus(requestId: string, status: string, rejectionReason?: string) {
+    const updateData: any = {
+      status,
+      updatedAt: new Date(),
+    };
+
+    if (status === 'approved') {
+      updateData.approvedAt = new Date();
+    } else if (status === 'rejected') {
+      updateData.rejectedAt = new Date();
+      updateData.rejectionReason = rejectionReason;
+    }
+
+    const [updated] = await this.db
+      .update(editServiceRequests)
+      .set(updateData)
+      .where(eq(editServiceRequests.id, requestId))
+      .returning();
+    
+    return updated || null;
   }
 
   // Session related queries

@@ -11,9 +11,60 @@ import {
 } from '@nestjs/common';
 import { BookingsService } from './bookings.service';
 import { GetCurrentUserId } from '../common/decorators';
+import { AtGuard } from '../auth/guards/at.guard';
+
+@Controller('bookings')
+@UseGuards(AtGuard)
+export class BookingsController {
+  constructor(private readonly bookingsService: BookingsService) {}
+
+  @Post()
+  async createBooking(
+    @GetCurrentUserId() clientId: string,
+    @Body() bookingData: {
+      expertId: string;
+      organizationId?: string;
+      service: string;
+      consultationType: string;
+      scheduledDate: string;
+      duration: number;
+      amount: number;
+      notes?: string;
+    },
+  ) {
+    return this.bookingsService.createBooking(clientId, bookingData);
+  }
+
+  @Get('my')
+  async getClientBookings(
+    @GetCurrentUserId() clientId: string,
+    @Query('status') status?: string,
+  ) {
+    const bookings = await this.bookingsService.getClientBookings(clientId, status);
+    return bookings;
+  }
+
+  @Get(':bookingId')
+  async getBookingDetails(
+    @GetCurrentUserId() userId: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.getBookingDetails(userId, bookingId);
+  }
+
+  @Post(':bookingId/cancel')
+  async cancelBooking(
+    @GetCurrentUserId() userId: string,
+    @Param('bookingId') bookingId: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.bookingsService.cancelBooking(userId, bookingId, body.reason);
+  }
+}
 
 @Controller('experts/bookings')
-export class BookingsController {
+@UseGuards(AtGuard)
+export class ExpertBookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
 
   @Get()

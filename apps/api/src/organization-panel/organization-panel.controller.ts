@@ -534,6 +534,14 @@ export class OrganizationPanelController {
     return this.organizationPanelService.reassignBooking(organizationId, bookingId, reassignData);
   }
 
+  @Post('/bookings')
+  async createVoiceCallBooking(
+    @GetCurrentUserId() organizationId: string,
+    @Body() bookingData: any,
+  ) {
+    return this.organizationPanelService.createVoiceCallBooking(organizationId, bookingData);
+  }
+
   // Analytics & Revenue APIs
   @Get('/dashboard')
   async getDashboard(@GetCurrentUserId() organizationId: string) {
@@ -581,5 +589,89 @@ export class OrganizationPanelController {
     @Query('limit') limit?: number,
   ) {
     return this.organizationPanelService.getMessages(userId, conversationId, Number(page) || 1, Number(limit) || 50);
+  }
+
+  // Refund Request APIs
+  @Post('/refunds')
+  async createRefundRequest(
+    @GetCurrentUserId() organizationId: string,
+    @Body() refundData: {
+      bookingId: string;
+      amount: string;
+      reason: string;
+      refundType: string;
+      paymentMethod?: string;
+      metadata?: any;
+    },
+  ) {
+    return this.organizationPanelService.createRefundRequest(organizationId, refundData);
+  }
+
+  @Get('/refunds')
+  async getRefundRequests(
+    @GetCurrentUserId() organizationId: string,
+    @Query('status') status?: string,
+  ) {
+    return this.organizationPanelService.getOrganizationRefundRequests(organizationId, status);
+  }
+
+  @Post('/refunds/:id/approve')
+  async approveRefund(
+    @GetCurrentUserId() organizationId: string,
+    @Param('id') refundId: string,
+  ) {
+    return this.organizationPanelService.updateRefundStatus(refundId, 'approved');
+  }
+
+  @Post('/refunds/:id/reject')
+  async rejectRefund(
+    @GetCurrentUserId() organizationId: string,
+    @Param('id') refundId: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.organizationPanelService.updateRefundStatus(refundId, 'rejected', body.reason);
+  }
+
+  // Edit Service Request APIs
+  @Post('/edit-service-requests')
+  async createEditServiceRequest(
+    @GetCurrentUserId() organizationId: string,
+    @Body() editData: {
+      bookingId: string;
+      clientId: string;
+      originalService: string;
+      originalAmount: string;
+      newService: string;
+      newAmount: string;
+      reason: string;
+      metadata?: any;
+    },
+  ) {
+    return this.organizationPanelService.createEditServiceRequest(organizationId, editData);
+  }
+
+  @Get('/edit-service-requests')
+  async getEditServiceRequests(
+    @GetCurrentUserId() organizationId: string,
+    @Query('status') status?: string,
+  ) {
+    return this.organizationPanelService.getOrganizationEditServiceRequests(organizationId, status);
+  }
+
+  @Post('/edit-service-requests/:id/approve')
+  async approveEditServiceRequest(
+    @GetCurrentUserId() organizationId: string,
+    @Param('id') requestId: string,
+  ) {
+    return this.organizationPanelService.updateEditServiceStatus(requestId, 'approved');
+  }
+
+  @Post('/edit-service-requests/:id/reject')
+  async rejectEditServiceRequest(
+    @GetCurrentUserId() organizationId: string,
+    @Param('id') requestId: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.organizationPanelService.updateEditServiceStatus(requestId, 'rejected', body.reason);
   }
 }
