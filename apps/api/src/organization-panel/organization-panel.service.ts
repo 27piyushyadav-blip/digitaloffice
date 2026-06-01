@@ -1209,7 +1209,7 @@ const organizationProfileId = orgProfile[0].id;
   // Edit service request related methods
   async createEditServiceRequest(organizationId: string, data: {
     bookingId: string;
-    clientId: string;
+    clientId?: string;
     originalService: string;
     originalAmount: string;
     newService: string;
@@ -1217,10 +1217,22 @@ const organizationProfileId = orgProfile[0].id;
     reason: string;
     metadata?: any;
   }) {
+    const booking = await this.databaseService.findBookingById(data.bookingId);
+    if (!booking) {
+      throw new BadRequestException('Booking not found');
+    }
+
+    const resolvedOrgId = booking.organizationId || organizationId;
+    const resolvedClientId = booking.clientId || data.clientId;
+
+    if (!resolvedClientId) {
+      throw new BadRequestException('Client ID is required');
+    }
+
     return this.databaseService.createEditServiceRequest({
       bookingId: data.bookingId,
-      clientId: data.clientId,
-      organizationId,
+      clientId: resolvedClientId,
+      organizationId: resolvedOrgId,
       originalService: data.originalService,
       originalAmount: data.originalAmount,
       newService: data.newService,

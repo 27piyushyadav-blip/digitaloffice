@@ -764,10 +764,14 @@ export class DatabaseService {
         booking: bookings,
         expert: expert,
         organization: organisation,
+        editRequest: editServiceRequests,
+        refundRequest: refundRequests,
       })
       .from(bookings)
       .leftJoin(expert, eq(bookings.expertId, expert.id))
       .leftJoin(organisation, eq(bookings.organizationId, organisation.id))
+      .leftJoin(editServiceRequests, eq(bookings.id, editServiceRequests.bookingId))
+      .leftJoin(refundRequests, eq(bookings.id, refundRequests.bookingId))
       .where(and(...conditions))
       .orderBy(desc(bookings.createdAt));
     
@@ -783,6 +787,24 @@ export class DatabaseService {
       .limit(1);
     
     return booking || null;
+  }
+
+  async findBookingDetailsById(bookingId: string) {
+    const [result] = await this.db
+      .select({
+        booking: bookings,
+        expert: expert,
+        expertProfile: expertProfile,
+        organization: organisation,
+      })
+      .from(bookings)
+      .leftJoin(expert, eq(bookings.expertId, expert.id))
+      .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
+      .leftJoin(organisation, eq(bookings.organizationId, organisation.id))
+      .where(eq(bookings.id, bookingId))
+      .limit(1);
+    
+    return result || null;
   }
 
   async updateBookingStatus(bookingId: string, status: string, additionalData?: any) {
@@ -1028,6 +1050,36 @@ export class DatabaseService {
 
     if (status === 'approved') {
       updateData.approvedAt = new Date();
+
+      // Fetch the request details to get the new service and amount
+      const [req] = await this.db
+        .select()
+        .from(editServiceRequests)
+        .where(eq(editServiceRequests.id, requestId));
+
+      if (req) {
+        // Update the booking itself
+        const updateFields: any = {
+          service: req.newService,
+          amount: req.newAmount,
+          updatedAt: new Date(),
+        };
+
+        if (req.metadata && typeof req.metadata === 'object') {
+          const metadata = req.metadata as any;
+          if (metadata.expertAssignments && Array.isArray(metadata.expertAssignments) && metadata.expertAssignments.length > 0) {
+            const firstAssignment = metadata.expertAssignments[0];
+            if (firstAssignment && firstAssignment.expertId) {
+              updateFields.expertId = firstAssignment.expertId;
+            }
+          }
+        }
+
+        await this.db
+          .update(bookings)
+          .set(updateFields)
+          .where(eq(bookings.id, req.bookingId));
+      }
     } else if (status === 'rejected') {
       updateData.rejectedAt = new Date();
       updateData.rejectionReason = rejectionReason;

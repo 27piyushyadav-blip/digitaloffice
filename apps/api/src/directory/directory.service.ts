@@ -179,6 +179,9 @@ export class DirectoryService {
     
     if (isUuid) {
       rawOrg = await this.databaseService.findOrganizationByProfileId(idOrSubdomain);
+      if (!rawOrg) {
+        rawOrg = await this.databaseService.findOrganizationById(idOrSubdomain);
+      }
     }
     
     if (!rawOrg) {
@@ -238,7 +241,12 @@ export class DirectoryService {
   private async resolveOrg(idOrSubdomain: string) {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idOrSubdomain);
     let org = null;
-    if (isUuid) org = await this.databaseService.findOrganizationByProfileId(idOrSubdomain);
+    if (isUuid) {
+      org = await this.databaseService.findOrganizationByProfileId(idOrSubdomain);
+      if (!org) {
+        org = await this.databaseService.findOrganizationById(idOrSubdomain);
+      }
+    }
     if (!org)    org = await this.databaseService.findOrganizationBySubdomain(idOrSubdomain);
     return org;
   }

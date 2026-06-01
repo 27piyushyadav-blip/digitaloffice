@@ -59,17 +59,19 @@ export class BookingsService {
   }
 
   async getBookingDetails(userId: string, bookingId: string) {
-    const booking = await this.databaseService.findBookingById(bookingId);
-    if (!booking) {
+    const details = await this.databaseService.findBookingDetailsById(bookingId);
+    if (!details || !details.booking) {
       throw new NotFoundException('Booking not found');
     }
+
+    const booking = details.booking;
 
     // Verify the user has access to this booking
     if (booking.clientId !== userId && booking.expertId !== userId) {
       throw new NotFoundException('Booking not found');
     }
 
-    return booking;
+    return details;
   }
 
   async acceptBooking(expertId: string, bookingId: string) {
