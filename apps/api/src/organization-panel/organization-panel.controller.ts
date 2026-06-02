@@ -542,6 +542,14 @@ export class OrganizationPanelController {
     return this.organizationPanelService.createVoiceCallBooking(organizationId, bookingData);
   }
 
+  @Post('/bookings/send-payment-link')
+  async sendPaymentLink(
+    @GetCurrentUserId() organizationId: string,
+    @Body() emailData: any,
+  ) {
+    return this.organizationPanelService.sendPaymentLink(organizationId, emailData);
+  }
+
   // Analytics & Revenue APIs
   @Get('/dashboard')
   async getDashboard(@GetCurrentUserId() organizationId: string) {

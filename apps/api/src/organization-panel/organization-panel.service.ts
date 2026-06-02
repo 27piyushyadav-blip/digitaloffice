@@ -6,12 +6,15 @@ import { eq, and } from 'drizzle-orm';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 
+import { MailService } from '@repo/mail';
+
 // Force reload after database rebuild
 @Injectable()
 export class OrganizationPanelService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
   ) {}
 
   // Organization Profile APIs
@@ -45,9 +48,15 @@ export class OrganizationPanelService {
 
   private toFullUrl(url: string | null) {
     if (!url) return null;
-    if (url.startsWith('http')) return url;
     const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
-    return `${baseUrl}${url}`;
+    if (url.startsWith('http')) {
+      if (url.includes('/uploads/')) {
+        const path = url.split('/uploads/')[1];
+        return `${baseUrl}/uploads/${path}`;
+      }
+      return url;
+    }
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
   }
 
   async updateProfile(organizationId: string, profileData: any) {
@@ -1011,10 +1020,32 @@ const organizationProfileId = orgProfile[0].id;
         totalAmount: totalAmount || 0,
         paymentLink: paymentLink || null,
         status: booking.status,
-        paymentStatus: booking.paymentStatus,
         createdAt: booking.createdAt,
       },
     };
+  }
+
+  async sendPaymentLink(organizationId: string, emailData: any) {
+    const { customerEmail, customerName, paymentLink, totalAmount } = emailData;
+
+    if (!customerEmail || !customerName || !paymentLink) {
+      throw new BadRequestException('Email, customer name and payment link are required');
+    }
+
+    const org = await this.getProfile(organizationId);
+
+    try {
+      await this.mailService.sendPaymentLinkEmail(
+        customerEmail,
+        customerName,
+        paymentLink,
+        totalAmount || 0,
+        org.name,
+      );
+      return { message: 'Payment link sent via email successfully' };
+    } catch (err: any) {
+      throw new BadRequestException(err?.message || 'Failed to send payment email. Please try again.');
+    }
   }
 
   // Analytics & Revenue APIs

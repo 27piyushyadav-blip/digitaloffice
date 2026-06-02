@@ -11,9 +11,15 @@ export class UsersService {
 
   private toFullUrl(url: string | null) {
     if (!url) return null;
-    if (url.startsWith('http')) return url;
     const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
-    return `${baseUrl}${url}`;
+    if (url.startsWith('http')) {
+      if (url.includes('/uploads/')) {
+        const path = url.split('/uploads/')[1];
+        return `${baseUrl}/uploads/${path}`;
+      }
+      return url;
+    }
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
   }
 
   // Get user profile

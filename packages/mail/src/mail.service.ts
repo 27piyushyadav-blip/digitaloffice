@@ -53,4 +53,30 @@ export class MailService {
       `,
     });
   }
+
+  async sendPaymentLinkEmail(email: string, customerName: string, paymentLink: string, amount: number, orgName: string) {
+    await this.transporter.sendMail({
+      from: `"Digital Office" <${this.configService.get<string>("GMAIL_USER")}>`,
+      to: email,
+      subject: `Payment Link from ${orgName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+          <h2 style="color: #1e3a8a; margin-bottom: 10px;">Payment Link Request</h2>
+          <p>Hi ${customerName},</p>
+          <p>We've generated a secure payment link for your requested services at <strong>${orgName}</strong>.</p>
+          <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #f1f5f9;">
+            <p style="margin: 0; font-size: 14px; color: #475569;">Total Amount Due</p>
+            <p style="margin: 5px 0 0 0; font-size: 24px; font-weight: bold; color: #2563eb;">$${amount} USD</p>
+          </div>
+          <p>Please click the button below to complete your payment securely. The link is valid for 24 hours.</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${paymentLink}" style="display: inline-block; padding: 14px 28px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);">
+              Pay Now Securely
+            </a>
+          </div>
+          <p style="font-size: 12px; color: #64748b; line-height: 1.5;">If you did not request this service, please ignore this email. Secure payment processed via Digital Office.</p>
+        </div>
+      `,
+    });
+  }
 }

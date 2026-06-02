@@ -14,9 +14,15 @@ export class DirectoryService {
     
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
-      if (url.startsWith('http')) return url;
       const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
-      return `${baseUrl}${url}`;
+      if (url.startsWith('http')) {
+        if (url.includes('/uploads/')) {
+          const path = url.split('/uploads/')[1];
+          return `${baseUrl}/uploads/${path}`;
+        }
+        return url;
+      }
+      return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
     };
 
     // Calculate starting price
@@ -95,9 +101,15 @@ export class DirectoryService {
   private mapOrganizationToPublicProfile(org: any, services: any[] = []) {
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
-      if (url.startsWith('http')) return url;
       const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
-      return `${baseUrl}${url}`;
+      if (url.startsWith('http')) {
+        if (url.includes('/uploads/')) {
+          const path = url.split('/uploads/')[1];
+          return `${baseUrl}/uploads/${path}`;
+        }
+        return url;
+      }
+      return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
     };
 
     return {
@@ -208,9 +220,15 @@ export class DirectoryService {
     // Resolve banner image URLs
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
-      if (url.startsWith('http')) return url;
       const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
-      return `${baseUrl}${url}`;
+      if (url.startsWith('http')) {
+        if (url.includes('/uploads/')) {
+          const path = url.split('/uploads/')[1];
+          return `${baseUrl}/uploads/${path}`;
+        }
+        return url;
+      }
+      return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
     };
 
     const rawBanners = rawOrg.banners || { horizontal: [], vertical: [] };
@@ -257,8 +275,15 @@ export class DirectoryService {
 
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
-      if (url.startsWith('http')) return url;
-      return `${this.configService.get('APP_URL') || 'http://localhost:3000'}${url}`;
+      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+      if (url.startsWith('http')) {
+        if (url.includes('/uploads/')) {
+          const path = url.split('/uploads/')[1];
+          return `${baseUrl}/uploads/${path}`;
+        }
+        return url;
+      }
+      return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
     };
 
     const services = await this.databaseService.listOrganizationServicesByProfileId(org.id);

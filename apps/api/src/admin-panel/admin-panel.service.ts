@@ -116,7 +116,8 @@ export class AdminPanelService {
   async getPendingOrganizations() {
     const orgs = await this.databaseService.findOrganizationsByStatus('PENDING');
     return orgs.map(org => ({
-      orgId: org.userId,
+      orgId: org.id,
+      userId: org.userId,
       name: org.name,
       email: org.email,
       phone: org.phone,
