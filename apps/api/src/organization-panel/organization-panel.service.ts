@@ -410,6 +410,9 @@ const organizationProfileId = orgProfile[0].id;
 
     const { name, email, username, bio, specialization, experience, consultationFee, avatar, introVideo, education, workHistory, availability, languages, socialLinks, tags, services } = data;
 
+    // Validate availability against organization operating hours
+    this.validateExpertAvailability(orgProfile[0].operatingHours, availability);
+
     // 1. Check if user already exists
     const existing = await this.databaseService.db
       .select()
@@ -655,6 +658,9 @@ const organizationProfileId = orgProfile[0].id;
   async updateExpertTimings(userId: string, expertId: string, availability: any[]) {
     const org = await this.getProfile(userId);
     const organizationProfileId = org.id;
+
+    // Validate availability against organization operating hours
+    this.validateExpertAvailability(org.operatingHours, availability);
 
     // Verify linkage
     const link = await this.databaseService.db
@@ -1279,5 +1285,68 @@ const organizationProfileId = orgProfile[0].id;
 
   async updateEditServiceStatus(requestId: string, status: string, rejectionReason?: string) {
     return this.databaseService.updateEditServiceStatus(requestId, status, rejectionReason);
+  }
+
+  private timeToMinutes(timeStr: string): number {
+    if (!timeStr) return 0;
+    const parts = timeStr.split(':');
+    const hours = parseInt(parts[0], 10) || 0;
+    const minutes = parseInt(parts[1], 10) || 0;
+    return hours * 60 + minutes;
+  }
+
+  private validateExpertAvailability(operatingHours: any[] | null, availability: any[]) {
+    if (!operatingHours || !Array.isArray(operatingHours)) {
+      throw new BadRequestException('Organization operating hours are not configured.');
+    }
+
+    if (!availability || !Array.isArray(availability)) {
+      return;
+    }
+
+    for (const slot of availability) {
+      const dayName = slot.dayOfWeek;
+      const start = slot.startTime;
+      const end = slot.endTime;
+
+      if (!dayName || !start || !end) {
+        throw new BadRequestException('Availability dayOfWeek, startTime, and endTime are required.');
+      }
+
+      const dayHours = operatingHours.find(
+        (h) => h && h.day && h.day.toLowerCase() === dayName.toLowerCase()
+      );
+
+      if (!dayHours) {
+        throw new BadRequestException(`Organization does not have operating hours defined for ${dayName}.`);
+      }
+
+      if (dayHours.is_closed) {
+        throw new BadRequestException(`Organization is closed on ${dayName}. Expert cannot set availability on this day.`);
+      }
+
+      const startMin = this.timeToMinutes(start);
+      const endMin = this.timeToMinutes(end);
+      const openMin = this.timeToMinutes(dayHours.open);
+      const closeMin = this.timeToMinutes(dayHours.close);
+
+      if (startMin < openMin) {
+        throw new BadRequestException(
+          `Expert start time ${start} on ${dayName} cannot be earlier than organization open time ${dayHours.open}.`
+        );
+      }
+
+      if (endMin > closeMin) {
+        throw new BadRequestException(
+          `Expert end time ${end} on ${dayName} cannot be later than organization close time ${dayHours.close}.`
+        );
+      }
+
+      if (startMin >= endMin) {
+        throw new BadRequestException(
+          `Expert start time ${start} must be earlier than end time ${end} on ${dayName}.`
+        );
+      }
+    }
   }
 }

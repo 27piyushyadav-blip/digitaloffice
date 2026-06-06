@@ -160,23 +160,48 @@ export class DirectoryService {
     // Safety filter: ensure only visible organizations are processed
     const visibleOrgs = rawOrgs.filter(org => org.isVisible !== false);
 
-    // For each organization, fetch real experts and services
-    const orgsWithData = await Promise.all(visibleOrgs.map(async (org) => {
-      const [rawExperts, services] = await Promise.all([
-        this.databaseService.findOrganizationExperts(org.id, true),
-        this.databaseService.listOrganizationServicesByProfileId(org.id),
-      ]);
-      const experts = rawExperts.map((item) => this.mapExpertToPublicProfile(item));
-      return { ...org, memberCount: experts.length, services, experts };
-    }));
-    
+    if (visibleOrgs.length === 0) {
+      return { status: 'success', data: { organizations: [], total: 0, hasMore: false } };
+    }
+
+    const orgIds = visibleOrgs.map(org => org.id);
+
+    // Batch-fetch ALL experts and services for ALL orgs in 2 queries (no N+1)
+    const [allRawExperts, allServices] = await Promise.all([
+      this.databaseService.findMultipleOrganizationsExperts(orgIds, true),
+      this.databaseService.listMultipleOrganizationServicesByProfileIds(orgIds),
+    ]);
+
+    // Group experts by orgId
+    const expertsByOrgId = new Map<string, any[]>();
+    for (const item of allRawExperts) {
+      const orgId: string = item.organizationId;
+      if (!expertsByOrgId.has(orgId)) expertsByOrgId.set(orgId, []);
+      expertsByOrgId.get(orgId)!.push(item);
+    }
+
+    // Group services by orgId
+    const servicesByOrgId = new Map<string, any[]>();
+    for (const svc of allServices) {
+      const orgId: string = svc.organizationId;
+      if (!servicesByOrgId.has(orgId)) servicesByOrgId.set(orgId, []);
+      servicesByOrgId.get(orgId)!.push(svc);
+    }
+
+    const organizations = visibleOrgs.map(org => {
+      const rawExperts = expertsByOrgId.get(org.id) || [];
+      const services = servicesByOrgId.get(org.id) || [];
+      const experts = rawExperts.map(item => this.mapExpertToPublicProfile(item));
+      return {
+        ...this.mapOrganizationToPublicProfile({ ...org, memberCount: experts.length }, services),
+        experts,
+      };
+    });
+
     return {
       status: 'success',
       data: {
-        organizations: orgsWithData.map(({ services, experts, ...org }) => ({
-          ...this.mapOrganizationToPublicProfile(org, services),
-          experts,
-        })),
+        organizations,
         total: rawOrgs.length,
         hasMore: false,
       }

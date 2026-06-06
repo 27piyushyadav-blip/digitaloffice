@@ -220,6 +220,18 @@ export class DatabaseService {
       .orderBy(desc(organizationServices.updatedAt));
   }
 
+  async listMultipleOrganizationServicesByProfileIds(organizationProfileIds: string[]) {
+    if (organizationProfileIds.length === 0) return [];
+    return await this.db
+      .select()
+      .from(organizationServices)
+      .where(and(
+        inArray(organizationServices.organizationId, organizationProfileIds),
+        eq(organizationServices.isActive, true)
+      ))
+      .orderBy(desc(organizationServices.updatedAt));
+  }
+
   async createOrganizationService(organizationUserId: string, data: any) {
     const org = await this.ensureOrganizationProfile(organizationUserId);
     if (!org) return null;
