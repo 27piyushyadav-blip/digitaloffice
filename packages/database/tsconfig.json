@@ -3,6 +3,7 @@
     "module": "commonjs",
     "target": "ES2021",
     "declaration": true,
+    "rootDir": "src",
     "outDir": "dist",
     "esModuleInterop": true,
     "skipLibCheck": true

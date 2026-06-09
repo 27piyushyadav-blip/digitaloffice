@@ -17,22 +17,22 @@ export class MailService {
   }
 
   async sendVerificationEmail(email: string, token: string, role: string) {
+    const baseRole = role.split("/")[0];
     let frontendUrl: string;
     
-    if (role === 'client') {
+    if (baseRole === 'client') {
       frontendUrl = this.configService.getOrThrow<string>("CLIENT_FRONTEND_URL");
-    } else if (role === 'expert') {
+    } else if (baseRole === 'expert') {
       frontendUrl = this.configService.getOrThrow<string>("EXPERT_FRONTEND_URL");
     }
-    else if (role === 'organisation') {
+    else if (baseRole === 'organisation') {
       frontendUrl = this.configService.getOrThrow<string>("ORGANISATION_FRONTEND_URL");
     }
-    else if (role === 'admin') {
+    else if (baseRole === 'admin') {
       frontendUrl = this.configService.getOrThrow<string>("ADMIN_FRONTEND_URL");
     }
     else {
-      // Fallback for other roles (admin, organisation)
-      frontendUrl = this.configService.getOrThrow<string>("EXPERT_FRONTEND_URL");
+      frontendUrl = this.configService.getOrThrow<string>("FRONTEND_URL");
     }
     
     const url = `${frontendUrl}/auth/${role}/verify?token=${token}`;
