@@ -68,7 +68,15 @@ export const organizationProfile = pgTable("organization_profile", {
   hasPendingUpdates: boolean("has_pending_updates").default(false),
   isVisible: boolean("is_visible").default(true),
   menu: json("menu").$type<any[]>(),
-  defaultLayout: json("default_layout").$type<{ horizontal: string[]; vertical: string[] }>(),
+  defaultLayout: json("default_layout").$type<{
+    horizontal?: string[];
+    vertical?: string[];
+    vertical2Name?: string;
+    horizontal1?: { type: string; title: string; services: string[] };
+    horizontal2?: { type: string; title: string; services: string[] };
+    vertical1?: { type: string; title: string; services: string[] };
+    vertical2?: string[] | { type: string; title: string; services: string[] };
+  }>(),
   banners: json("banners").$type<{
     horizontal: Array<{ id: string; imageUrl: string; title?: string; link?: string }>;
     vertical: Array<{ id: string; imageUrl: string; title?: string; link?: string }>;
@@ -80,6 +88,7 @@ export const organizationProfile = pgTable("organization_profile", {
   rating: decimal("rating", { precision: 3, scale: 2 }).default("0"),
   verificationStatus: text("verification_status").default("ONBOARDING"), // ONBOARDING, PENDING, VERIFIED, REJECTED
   rejectionReason: text("rejection_reason"),
+  showCategories: boolean("show_categories").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
 });

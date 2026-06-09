@@ -395,9 +395,52 @@ export class OrganizationPanelController {
   @Post('/services/categories')
   async createServiceCategory(
     @GetCurrentUserId() organizationId: string,
-    @Body('name') name: string,
+    @Body() body: { name: string; imageUrl?: string | null; price?: string | null },
   ) {
-    return this.organizationPanelService.createServiceCategory(organizationId, name);
+    return this.organizationPanelService.createServiceCategory(organizationId, body.name, body.imageUrl, body.price);
+  }
+
+  @Patch('/services/categories/:id')
+  async updateServiceCategory(
+    @GetCurrentUserId() organizationId: string,
+    @Param('id') categoryId: string,
+    @Body() data: { name?: string; imageUrl?: string | null; price?: string | null },
+  ) {
+    return this.organizationPanelService.updateServiceCategory(organizationId, categoryId, data);
+  }
+
+  @Post('/services/categories/upload-image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-categories',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
+          return cb(new BadRequestException('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB
+      },
+    }),
+  )
+  async uploadCategoryImage(
+    @GetCurrentUserId() organizationId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-categories/${file.filename}`;
+    return { imageUrl: fileUrl };
   }
 
   @Delete('/services/categories/:id')
@@ -683,3 +726,5 @@ export class OrganizationPanelController {
     return this.organizationPanelService.updateEditServiceStatus(requestId, 'rejected', body.reason);
   }
 }
+// Trigger reload after database package build (v2)
+

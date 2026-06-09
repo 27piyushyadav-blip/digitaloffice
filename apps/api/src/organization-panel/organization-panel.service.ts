@@ -168,6 +168,7 @@ export class OrganizationPanelService {
       verificationStatus: profileData.verificationStatus !== undefined ? profileData.verificationStatus : existingProfile.verificationStatus,
       products: profileData.products !== undefined ? profileData.products : (existingProfile as any).products,
       features: profileData.features !== undefined ? profileData.features : (existingProfile as any).features,
+      showCategories: profileData.showCategories !== undefined ? profileData.showCategories : (existingProfile as any).showCategories,
     });
 
     return {
@@ -800,7 +801,7 @@ const organizationProfileId = orgProfile[0].id;
     const org = await this.databaseService.ensureOrganizationProfile(organizationId);
     return {
       services,
-      defaultLayout: org?.defaultLayout || { horizontal: [], vertical: [] },
+      defaultLayout: this.normalizeLayout(org?.defaultLayout),
       total: services.length,
       active: services.filter((s: any) => s.isActive).length,
     };
@@ -831,11 +832,17 @@ const organizationProfileId = orgProfile[0].id;
     return { categories };
   }
 
-  async createServiceCategory(organizationId: string, name: string) {
+  async createServiceCategory(organizationId: string, name: string, imageUrl?: string | null, price?: string | null) {
     if (!name) throw new BadRequestException('Category name is required');
-    const category = await this.databaseService.createOrganizationServiceCategory(organizationId, name);
+    const category = await this.databaseService.createOrganizationServiceCategory(organizationId, name, imageUrl, price);
     if (!category) throw new BadRequestException('Failed to create category');
     return { message: 'Category created successfully', category };
+  }
+
+  async updateServiceCategory(organizationId: string, categoryId: string, data: { name?: string; imageUrl?: string | null; price?: string | null }) {
+    const category = await this.databaseService.updateOrganizationServiceCategory(organizationId, categoryId, data);
+    if (!category) throw new BadRequestException('Category not found');
+    return { message: 'Category updated successfully', category };
   }
 
   async deleteServiceCategory(organizationId: string, categoryId: string) {
@@ -848,11 +855,17 @@ const organizationProfileId = orgProfile[0].id;
     if (categoryId === 'default') {
       const updatedProfile = await this.databaseService.updateOrganizationDefaultLayout(organizationId, layout);
       if (!updatedProfile) throw new BadRequestException('Organization profile not found');
-      return { message: 'Default layout updated successfully', defaultLayout: updatedProfile.defaultLayout };
+      return { message: 'Default layout updated successfully', defaultLayout: this.normalizeLayout(updatedProfile.defaultLayout) };
     }
     const updated = await this.databaseService.updateOrganizationServiceCategoryLayout(organizationId, categoryId, layout);
     if (!updated) throw new BadRequestException('Category not found');
-    return { message: 'Layout updated successfully', category: updated };
+    return {
+      message: 'Layout updated successfully',
+      category: {
+        ...updated,
+        layout: this.normalizeLayout(updated.layout),
+      },
+    };
   }
 
   async getOrganizationBanners(organizationId: string) {
@@ -1348,5 +1361,68 @@ const organizationProfileId = orgProfile[0].id;
         );
       }
     }
+  }
+
+  private normalizeLayout(rawLayout: any) {
+    const defaultSections = {
+      horizontal1: { type: 'services', title: 'Featured Services', services: [] },
+      horizontal2: { type: 'staff', title: 'Our Staffs', services: [] },
+      vertical1: { type: 'services', title: 'Menu', services: [] },
+      vertical2: { type: 'products', title: 'Products', services: [] },
+    };
+
+    if (!rawLayout || typeof rawLayout !== 'object') {
+      return defaultSections;
+    }
+
+    const getSection = (key: string, fallbackType: string, fallbackTitle: string) => {
+      const rawSec = rawLayout[key];
+      if (rawSec && typeof rawSec === 'object') {
+        return {
+          type: rawSec.type || fallbackType,
+          title: rawSec.title || fallbackTitle,
+          services: Array.isArray(rawSec.services) ? rawSec.services : [],
+        };
+      }
+      return { type: fallbackType, title: fallbackTitle, services: [] };
+    };
+
+    const hasOldKeys = ('horizontal' in rawLayout && Array.isArray(rawLayout.horizontal)) ||
+                        ('vertical' in rawLayout && Array.isArray(rawLayout.vertical)) ||
+                        ('vertical2' in rawLayout && Array.isArray(rawLayout.vertical2));
+
+    const hasNewKeys = 'horizontal1' in rawLayout || 'horizontal2' in rawLayout || 'vertical1' in rawLayout || 'vertical2' in rawLayout;
+
+    if (hasOldKeys && !hasNewKeys) {
+      return {
+        horizontal1: {
+          type: 'services',
+          title: 'Featured Services',
+          services: Array.isArray(rawLayout.horizontal) ? rawLayout.horizontal : [],
+        },
+        horizontal2: {
+          type: 'staff',
+          title: 'Our Staffs',
+          services: [],
+        },
+        vertical1: {
+          type: 'services',
+          title: 'Menu',
+          services: Array.isArray(rawLayout.vertical) ? rawLayout.vertical : [],
+        },
+        vertical2: {
+          type: 'products',
+          title: rawLayout.vertical2Name || 'Products',
+          services: Array.isArray(rawLayout.vertical2) ? rawLayout.vertical2 : [],
+        },
+      };
+    }
+
+    return {
+      horizontal1: getSection('horizontal1', 'services', 'Featured Services'),
+      horizontal2: getSection('horizontal2', 'staff', 'Our Staffs'),
+      vertical1: getSection('vertical1', 'services', 'Menu'),
+      vertical2: getSection('vertical2', 'products', 'Products'),
+    };
   }
 }

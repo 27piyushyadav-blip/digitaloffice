@@ -300,7 +300,7 @@ export class DatabaseService {
       .orderBy(desc(organizationServiceCategories.createdAt));
   }
 
-  async createOrganizationServiceCategory(organizationUserId: string, name: string) {
+  async createOrganizationServiceCategory(organizationUserId: string, name: string, imageUrl?: string | null, price?: string | null) {
     const org = await this.ensureOrganizationProfile(organizationUserId);
     if (!org) return null;
 
@@ -309,11 +309,34 @@ export class DatabaseService {
       .values({
         organizationId: org.id,
         name: name,
+        imageUrl: imageUrl || null,
+        price: price || null,
         sortOrder: 0,
       })
       .returning();
 
     return created || null;
+  }
+
+  async updateOrganizationServiceCategory(organizationUserId: string, categoryId: string, data: { name?: string; imageUrl?: string | null; price?: string | null }) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+
+    const setData: any = { updatedAt: new Date() };
+    if (data.name !== undefined) setData.name = data.name;
+    if (data.imageUrl !== undefined) setData.imageUrl = data.imageUrl;
+    if (data.price !== undefined) setData.price = data.price;
+
+    const [updated] = await this.db
+      .update(organizationServiceCategories)
+      .set(setData)
+      .where(and(
+        eq(organizationServiceCategories.id, categoryId),
+        eq(organizationServiceCategories.organizationId, org.id)
+      ))
+      .returning();
+
+    return updated || null;
   }
 
   async deleteOrganizationServiceCategory(organizationUserId: string, id: string) {

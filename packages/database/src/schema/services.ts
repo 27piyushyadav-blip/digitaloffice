@@ -12,8 +12,18 @@ export const organizationServiceCategories = pgTable(
       .notNull()
       .references(() => organizationProfile.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    imageUrl: text("image_url"),
+    price: decimal("price", { precision: 10, scale: 2 }),
     sortOrder: integer("sort_order").default(0).notNull(),
-    layout: json("layout").$type<{ horizontal: string[]; vertical: string[] }>(),
+    layout: json("layout").$type<{
+      horizontal?: string[];
+      vertical?: string[];
+      vertical2Name?: string;
+      horizontal1?: { type: string; title: string; services: string[] };
+      horizontal2?: { type: string; title: string; services: string[] };
+      vertical1?: { type: string; title: string; services: string[] };
+      vertical2?: string[] | { type: string; title: string; services: string[] };
+    }>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
   },

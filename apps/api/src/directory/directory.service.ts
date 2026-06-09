@@ -151,6 +151,8 @@ export class DirectoryService {
           categoryId: s.categoryId || null,
         })),
         serviceCount: services.length,
+        showCategories: org.showCategories || false,
+        defaultLayout: this.normalizeLayout(org.defaultLayout),
     };
   }
 
@@ -228,10 +230,11 @@ export class DirectoryService {
     if (!rawOrg) return null;
     
     // Fetch affiliated experts (only visible ones), services, and reviews in parallel
-    const [rawExperts, services, rawReviews] = await Promise.all([
+    const [rawExperts, services, rawReviews, categories] = await Promise.all([
       this.databaseService.findOrganizationExperts(rawOrg.id, true),
       this.databaseService.listOrganizationServicesByProfileId(rawOrg.id),
       this.databaseService.findReviewsByOrganizationId(rawOrg.id),
+      this.databaseService.listOrganizationServiceCategories(rawOrg.userId),
     ]);
 
     const experts = rawExperts.map((item) => this.mapExpertToPublicProfile(item));
@@ -272,6 +275,13 @@ export class DirectoryService {
       status: 'success',
       data: {
         ...this.mapOrganizationToPublicProfile(rawOrg, services),
+        categories: (categories || []).map(c => ({
+          id: c.id,
+          name: c.name,
+          imageUrl: toFullUrl(c.imageUrl),
+          price: c.price || null,
+          layout: this.normalizeLayout(c.layout),
+        })),
         experts,
         reviews,
         banners,
@@ -357,6 +367,69 @@ export class DirectoryService {
         total: experts.length,
         filteredByService: serviceFilter || null,
       }
+    };
+  }
+
+  private normalizeLayout(rawLayout: any) {
+    const defaultSections = {
+      horizontal1: { type: 'services', title: 'Featured Services', services: [] },
+      horizontal2: { type: 'staff', title: 'Our Staffs', services: [] },
+      vertical1: { type: 'services', title: 'Menu', services: [] },
+      vertical2: { type: 'products', title: 'Products', services: [] },
+    };
+
+    if (!rawLayout || typeof rawLayout !== 'object') {
+      return defaultSections;
+    }
+
+    const getSection = (key: string, fallbackType: string, fallbackTitle: string) => {
+      const rawSec = rawLayout[key];
+      if (rawSec && typeof rawSec === 'object') {
+        return {
+          type: rawSec.type || fallbackType,
+          title: rawSec.title || fallbackTitle,
+          services: Array.isArray(rawSec.services) ? rawSec.services : [],
+        };
+      }
+      return { type: fallbackType, title: fallbackTitle, services: [] };
+    };
+
+    const hasOldKeys = ('horizontal' in rawLayout && Array.isArray(rawLayout.horizontal)) ||
+                        ('vertical' in rawLayout && Array.isArray(rawLayout.vertical)) ||
+                        ('vertical2' in rawLayout && Array.isArray(rawLayout.vertical2));
+
+    const hasNewKeys = 'horizontal1' in rawLayout || 'horizontal2' in rawLayout || 'vertical1' in rawLayout || 'vertical2' in rawLayout;
+
+    if (hasOldKeys && !hasNewKeys) {
+      return {
+        horizontal1: {
+          type: 'services',
+          title: 'Featured Services',
+          services: Array.isArray(rawLayout.horizontal) ? rawLayout.horizontal : [],
+        },
+        horizontal2: {
+          type: 'staff',
+          title: 'Our Staffs',
+          services: [],
+        },
+        vertical1: {
+          type: 'services',
+          title: 'Menu',
+          services: Array.isArray(rawLayout.vertical) ? rawLayout.vertical : [],
+        },
+        vertical2: {
+          type: 'products',
+          title: rawLayout.vertical2Name || 'Products',
+          services: Array.isArray(rawLayout.vertical2) ? rawLayout.vertical2 : [],
+        },
+      };
+    }
+
+    return {
+      horizontal1: getSection('horizontal1', 'services', 'Featured Services'),
+      horizontal2: getSection('horizontal2', 'staff', 'Our Staffs'),
+      vertical1: getSection('vertical1', 'services', 'Menu'),
+      vertical2: getSection('vertical2', 'products', 'Products'),
     };
   }
 }
