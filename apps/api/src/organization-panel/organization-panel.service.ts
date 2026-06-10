@@ -1365,7 +1365,7 @@ const organizationProfileId = orgProfile[0].id;
 
   private normalizeLayout(rawLayout: any) {
     const defaultSections = {
-      horizontal1: { type: 'services', title: 'Featured Services', services: [] },
+      horizontal1: { type: 'services', title: 'Our Services', services: [] },
       horizontal2: { type: 'staff', title: 'Our Staffs', services: [] },
       vertical1: { type: 'services', title: 'Menu', services: [] },
       vertical2: { type: 'products', title: 'Products', services: [] },
@@ -1397,7 +1397,7 @@ const organizationProfileId = orgProfile[0].id;
       return {
         horizontal1: {
           type: 'services',
-          title: 'Featured Services',
+          title: 'Our Services',
           services: Array.isArray(rawLayout.horizontal) ? rawLayout.horizontal : [],
         },
         horizontal2: {
@@ -1419,7 +1419,7 @@ const organizationProfileId = orgProfile[0].id;
     }
 
     return {
-      horizontal1: getSection('horizontal1', 'services', 'Featured Services'),
+      horizontal1: getSection('horizontal1', 'services', 'Our Services'),
       horizontal2: getSection('horizontal2', 'staff', 'Our Staffs'),
       vertical1: getSection('vertical1', 'services', 'Menu'),
       vertical2: getSection('vertical2', 'products', 'Products'),
