@@ -94,7 +94,7 @@ export class AdminPanelController {
         },
       }),
       fileFilter: (req, file, cb) => {
-        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp|avif)$/)) {
           return cb(new BadRequestException('Only image files are allowed!'), false);
         }
         cb(null, true);
@@ -263,7 +263,7 @@ export class AdminPanelController {
         },
       }),
       fileFilter: (req, file, cb) => {
-        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp|avif)$/)) {
           return cb(new BadRequestException('Only image files are allowed!'), false);
         }
         cb(null, true);
@@ -427,7 +427,7 @@ export class AdminPanelController {
         },
       }),
       fileFilter: (req, file, cb) => {
-        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp|avif)$/)) {
           return cb(new BadRequestException('Only image files are allowed!'), false);
         }
         cb(null, true);

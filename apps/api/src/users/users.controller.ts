@@ -51,7 +51,7 @@ export class UsersController {
         },
       }),
       fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|gif/;
+        const allowedTypes = /jpeg|jpg|png|gif|webp|avif/;
         const fileExt = extname(file.originalname).toLowerCase();
         const isExtAllowed = allowedTypes.test(fileExt);
         const isMimeTypeAllowed = allowedTypes.test(file.mimetype);
