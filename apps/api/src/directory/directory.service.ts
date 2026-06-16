@@ -432,4 +432,137 @@ export class DirectoryService {
       vertical2: getSection('vertical2', 'products', 'Products'),
     };
   }
+
+  async getCategories() {
+    const rawOrgs = await this.databaseService.findOrganizations('VERIFIED', undefined, undefined, true);
+    
+    // Safety filter: ensure only visible organizations are processed
+    const visibleOrgs = rawOrgs.filter(org => org.isVisible !== false);
+
+    if (visibleOrgs.length === 0) {
+      return { status: 'success', data: { categories: [] } };
+    }
+
+    const orgIds = visibleOrgs.map(org => org.id);
+
+    // Batch-fetch ALL experts and services for ALL orgs
+    const [allRawExperts, allServices] = await Promise.all([
+      this.databaseService.findMultipleOrganizationsExperts(orgIds, true),
+      this.databaseService.listMultipleOrganizationServicesByProfileIds(orgIds),
+    ]);
+
+    // Group experts by orgId
+    const expertsByOrgId = new Map<string, any[]>();
+    for (const item of allRawExperts) {
+      const orgId: string = item.organizationId;
+      if (!expertsByOrgId.has(orgId)) expertsByOrgId.set(orgId, []);
+      expertsByOrgId.get(orgId)!.push(item);
+    }
+
+    // Group services by orgId
+    const servicesByOrgId = new Map<string, any[]>();
+    for (const svc of allServices) {
+      const orgId: string = svc.organizationId;
+      if (!servicesByOrgId.has(orgId)) servicesByOrgId.set(orgId, []);
+      servicesByOrgId.get(orgId)!.push(svc);
+    }
+
+    // Map organizations with their services and experts
+    const organizations = visibleOrgs.map(org => {
+      const rawExperts = expertsByOrgId.get(org.id) || [];
+      const services = servicesByOrgId.get(org.id) || [];
+      const experts = rawExperts.map(item => this.mapExpertToPublicProfile(item));
+      return {
+        ...this.mapOrganizationToPublicProfile({ ...org, memberCount: experts.length }, services),
+        experts,
+      };
+    });
+
+    // Group by category
+    const categoriesMap = new Map<string, any[]>();
+    for (const org of organizations) {
+      const cat = org.category ? org.category.trim() : '';
+      // Skip empty or 'null' categories
+      if (!cat || cat.toLowerCase() === 'null') continue;
+
+      if (!categoriesMap.has(cat)) {
+        categoriesMap.set(cat, []);
+      }
+      categoriesMap.get(cat)!.push(org);
+    }
+
+    const categories = Array.from(categoriesMap.entries()).map(([name, orgs]) => ({
+      category: name,
+      organizations: orgs,
+    }));
+
+    return {
+      status: 'success',
+      data: {
+        categories,
+      }
+    };
+  }
+
+  async getServicesByCategory(categoryName: string) {
+    const rawOrgs = await this.databaseService.findOrganizations('VERIFIED', undefined, undefined, true);
+    
+    // Safety filter: filter by category case-insensitively and ensure visible
+    const targetCategory = categoryName.trim().toLowerCase();
+    const visibleOrgs = rawOrgs.filter(org => {
+      if (org.isVisible === false) return false;
+      const cat = org.category ? org.category.trim().toLowerCase() : '';
+      return cat === targetCategory;
+    });
+
+    if (visibleOrgs.length === 0) {
+      return { status: 'success', data: { services: [], total: 0 } };
+    }
+
+    const orgIds = visibleOrgs.map(org => org.id);
+    const allServices = await this.databaseService.listMultipleOrganizationServicesByProfileIds(orgIds);
+
+    const toFullUrl = (url: string | null) => {
+      if (!url) return null;
+      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+      if (url.startsWith('http')) {
+        if (url.includes('/uploads/')) {
+          const path = url.split('/uploads/')[1];
+          return `${baseUrl}/uploads/${path}`;
+        }
+        return url;
+      }
+      return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+    };
+
+    // Build helper map of orgProfiles without services to prevent massive nesting/circular references
+    const orgMap = new Map<string, any>();
+    for (const org of visibleOrgs) {
+      orgMap.set(org.id, this.mapOrganizationToPublicProfile(org, []));
+    }
+
+    const services = allServices.map(s => {
+      const orgProfile = orgMap.get(s.organizationId);
+      return {
+        id: s.id,
+        name: s.name,
+        description: (s as any).description || null,
+        basePrice: Number(s.basePrice) || 0,
+        durationMinutes: s.durationMinutes || 60,
+        imageUrl: toFullUrl((s as any).imageUrl),
+        isActive: s.isActive,
+        categoryId: s.categoryId || null,
+        organization: orgProfile || null,
+      };
+    });
+
+    return {
+      status: 'success',
+      data: {
+        services,
+        total: services.length,
+      }
+    };
+  }
 }
+

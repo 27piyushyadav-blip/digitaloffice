@@ -60,4 +60,17 @@ export class DirectoryController {
     }
     return result;
   }
+
+  @Public()
+  @Get('categories')
+  async getCategories() {
+    return this.directoryService.getCategories();
+  }
+
+  @Public()
+  @Get('services/category/:category')
+  async getServicesByCategory(@Param('category') category: string) {
+    return this.directoryService.getServicesByCategory(category);
+  }
 }
+
