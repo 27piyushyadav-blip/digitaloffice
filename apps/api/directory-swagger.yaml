@@ -9,14 +9,14 @@ servers:
 paths:
   /directory/categories:
     get:
-      summary: Retrieve all categories of organizations
+      summary: Retrieve all categories of organizations (lightweight)
       description: |
-        Returns a list of all unique categories of verified and visible organizations.
-        Each category contains the list of organizations belonging to it, along with their mapped service list and affiliated expert details.
+        Returns a flat list of all service categories defined across verified and visible organizations in the system.
+        Each category item includes only the essential details (id, name, imageUrl, price) and a compact summary of the organization offering it.
       operationId: getCategories
       responses:
         '200':
-          description: Successfully retrieved organization categories.
+          description: Successfully retrieved categories.
           content:
             application/json:
               schema:
@@ -25,38 +25,19 @@ paths:
                 status: success
                 data:
                   categories:
-                    - category: studios
-                      organizations:
-                        - _id: cc2708aa-4151-49d9-aebd-ad80d576d51a
-                          userId: 4e197dc3-5a47-4ee7-a4d5-ffd92f250f3e
-                          name: Fade Station Barbershop
-                          subdomain: fade-station
-                          description: our studio is serving no. of business men
-                          tagline: our studio is better than anyone
-                          industry: Barber
-                          location: 217 ascotvale road ascotavle
-                          phone: "+1 (555) 019-2834"
-                          logo: http://localhost:3000/uploads/logo-123.png
-                          verified: true
-                          rating: 4.8
-                          memberCount: 3
-                          services:
-                            - id: a7265dd9-fba9-45d4-8faa-49b92d717cf8
-                              name: spice cutting
-                              description: null
-                              basePrice: 100
-                              durationMinutes: 60
-                              imageUrl: null
-                              isActive: true
-                              categoryId: null
-                          experts:
-                            - _id: 163eb306-0110-493b-ba04-b58cadfd75b3
-                              name: John Doe
-                              profilePicture: http://localhost:3000/uploads/avatar.png
-                              specialization: Hair Stylist
-                              rating: 4.8
-                              experienceYears: 5
-                              location: Ascotvale
+                    - id: 39ace40e-6b42-4a6c-a0c8-73dce60b20e5
+                      name: Hair laser
+                      imageUrl: http://localhost:3000/uploads/organization-categories/195a1b29630d11cb32dd4e3cbcf10bf32.jpg
+                      price: "70.00"
+                      organization:
+                        _id: cc2708aa-4151-49d9-aebd-ad80d576d51a
+                        userId: 4e197dc3-5a47-4ee7-a4d5-ffd92f250f3e
+                        name: Fade Station Barbershop
+                        subdomain: fade-station
+                        location: 217 ascotvale road ascotavle
+                        logo: http://localhost:3000/uploads/logo-123.png
+                        verified: true
+                        rating: 4.5
         '500':
           description: Internal server error.
           content:
@@ -66,15 +47,15 @@ paths:
 
   /directory/services/category/{category}:
     get:
-      summary: Retrieve services filtered by organization category
+      summary: Retrieve services filtered by category ID or name (lightweight)
       description: |
-        Returns a flat list of services offered by organizations that belong to the specified category.
-        Each service details include its parent organization's public profile summary (without circular service lists).
+        Returns a flat list of services offered under the specified category (either by Category UUID or Category Name).
+        Each service detail includes a compact summary of the parent organization.
       operationId: getServicesByCategory
       parameters:
         - name: category
           in: path
-          description: The category name (case-insensitive) of the organizations whose services are being fetched (e.g., 'studios').
+          description: The category UUID or the category name (case-insensitive) to filter services by (e.g., '39ace40e-6b42-4a6c-a0c8-73dce60b20e5' or 'Hair laser').
           required: true
           schema:
             type: string
@@ -96,21 +77,16 @@ paths:
                       durationMinutes: 60
                       imageUrl: null
                       isActive: true
-                      categoryId: null
+                      categoryId: 39ace40e-6b42-4a6c-a0c8-73dce60b20e5
                       organization:
                         _id: cc2708aa-4151-49d9-aebd-ad80d576d51a
                         userId: 4e197dc3-5a47-4ee7-a4d5-ffd92f250f3e
                         name: Fade Station Barbershop
                         subdomain: fade-station
-                        description: our studio is serving no. of business men
-                        tagline: our studio is better than anyone
-                        industry: Barber
                         location: 217 ascotvale road ascotavle
                         logo: http://localhost:3000/uploads/logo-123.png
                         verified: true
-                        rating: 4.8
-                        memberCount: 3
-
+                        rating: 4.5
                   total: 1
         '500':
           description: Internal server error.
@@ -133,18 +109,25 @@ components:
             categories:
               type: array
               items:
-                $ref: '#/components/schemas/CategoryItem'
+                $ref: '#/components/schemas/CategoryDetailedItem'
 
-    CategoryItem:
+    CategoryDetailedItem:
       type: object
       properties:
-        category:
+        id:
           type: string
-          example: studios
-        organizations:
-          type: array
-          items:
-            $ref: '#/components/schemas/OrganizationDetailed'
+          format: uuid
+        name:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+          nullable: true
+        price:
+          type: string
+          nullable: true
+        organization:
+          $ref: '#/components/schemas/OrganizationSummary'
 
     ServicesByCategoryResponse:
       type: object
@@ -162,53 +145,6 @@ components:
             total:
               type: integer
               example: 1
-
-    OrganizationDetailed:
-      type: object
-      properties:
-        _id:
-          type: string
-          format: uuid
-        userId:
-          type: string
-          format: uuid
-        name:
-          type: string
-        subdomain:
-          type: string
-        description:
-          type: string
-        tagline:
-          type: string
-        industry:
-          type: string
-        location:
-          type: string
-        phone:
-          type: string
-          nullable: true
-        logo:
-          type: string
-          format: uri
-          nullable: true
-        coverImageUrl:
-          type: string
-          format: uri
-          nullable: true
-        verified:
-          type: boolean
-        memberCount:
-          type: integer
-        rating:
-          type: number
-        services:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceItem'
-        experts:
-          type: array
-          items:
-            $ref: '#/components/schemas/ExpertItem'
 
     ServiceWithOrganization:
       allOf:
@@ -231,26 +167,14 @@ components:
           type: string
         subdomain:
           type: string
-        description:
-          type: string
-        tagline:
-          type: string
-        industry:
-          type: string
         location:
           type: string
         logo:
           type: string
           format: uri
           nullable: true
-        coverImageUrl:
-          type: string
-          format: uri
-          nullable: true
         verified:
           type: boolean
-        memberCount:
-          type: integer
         rating:
           type: number
 
@@ -279,27 +203,6 @@ components:
           type: string
           format: uuid
           nullable: true
-
-    ExpertItem:
-      type: object
-      properties:
-        _id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        profilePicture:
-          type: string
-          format: uri
-          nullable: true
-        specialization:
-          type: string
-        rating:
-          type: number
-        experienceYears:
-          type: integer
-        location:
-          type: string
 
     ErrorResponse:
       type: object

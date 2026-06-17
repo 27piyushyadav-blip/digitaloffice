@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
+import { organizationServices, organizationServiceCategories } from '@repo/database';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 
 @Injectable()
 export class DirectoryService {
@@ -120,6 +122,7 @@ export class DirectoryService {
         description: org.description || "",
         tagline: org.tagline || "",
         industry: org.industry || "",
+        category: org.category || null,
         location: org.location || "Online",
         phone: org.phone || org.phoneNumber || null,
         phoneNumber: org.phoneNumber || org.phone || null,
@@ -153,6 +156,32 @@ export class DirectoryService {
         serviceCount: services.length,
         showCategories: org.showCategories || false,
         defaultLayout: this.normalizeLayout(org.defaultLayout),
+    };
+  }
+
+  private mapOrganizationToSummary(org: any) {
+    const toFullUrl = (url: string | null) => {
+      if (!url) return null;
+      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+      if (url.startsWith('http')) {
+        if (url.includes('/uploads/')) {
+          const path = url.split('/uploads/')[1];
+          return `${baseUrl}/uploads/${path}`;
+        }
+        return url;
+      }
+      return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+    };
+
+    return {
+      _id: org.id,
+      userId: org.userId,
+      name: org.name,
+      subdomain: org.subdomain,
+      location: org.location || "Online",
+      logo: toFullUrl(org.logo),
+      verified: org.verified || org.verificationStatus === 'VERIFIED',
+      rating: typeof org.rating === 'number' ? org.rating : 4.5,
     };
   }
 
@@ -445,82 +474,8 @@ export class DirectoryService {
 
     const orgIds = visibleOrgs.map(org => org.id);
 
-    // Batch-fetch ALL experts and services for ALL orgs
-    const [allRawExperts, allServices] = await Promise.all([
-      this.databaseService.findMultipleOrganizationsExperts(orgIds, true),
-      this.databaseService.listMultipleOrganizationServicesByProfileIds(orgIds),
-    ]);
-
-    // Group experts by orgId
-    const expertsByOrgId = new Map<string, any[]>();
-    for (const item of allRawExperts) {
-      const orgId: string = item.organizationId;
-      if (!expertsByOrgId.has(orgId)) expertsByOrgId.set(orgId, []);
-      expertsByOrgId.get(orgId)!.push(item);
-    }
-
-    // Group services by orgId
-    const servicesByOrgId = new Map<string, any[]>();
-    for (const svc of allServices) {
-      const orgId: string = svc.organizationId;
-      if (!servicesByOrgId.has(orgId)) servicesByOrgId.set(orgId, []);
-      servicesByOrgId.get(orgId)!.push(svc);
-    }
-
-    // Map organizations with their services and experts
-    const organizations = visibleOrgs.map(org => {
-      const rawExperts = expertsByOrgId.get(org.id) || [];
-      const services = servicesByOrgId.get(org.id) || [];
-      const experts = rawExperts.map(item => this.mapExpertToPublicProfile(item));
-      return {
-        ...this.mapOrganizationToPublicProfile({ ...org, memberCount: experts.length }, services),
-        experts,
-      };
-    });
-
-    // Group by category
-    const categoriesMap = new Map<string, any[]>();
-    for (const org of organizations) {
-      const cat = org.category ? org.category.trim() : '';
-      // Skip empty or 'null' categories
-      if (!cat || cat.toLowerCase() === 'null') continue;
-
-      if (!categoriesMap.has(cat)) {
-        categoriesMap.set(cat, []);
-      }
-      categoriesMap.get(cat)!.push(org);
-    }
-
-    const categories = Array.from(categoriesMap.entries()).map(([name, orgs]) => ({
-      category: name,
-      organizations: orgs,
-    }));
-
-    return {
-      status: 'success',
-      data: {
-        categories,
-      }
-    };
-  }
-
-  async getServicesByCategory(categoryName: string) {
-    const rawOrgs = await this.databaseService.findOrganizations('VERIFIED', undefined, undefined, true);
-    
-    // Safety filter: filter by category case-insensitively and ensure visible
-    const targetCategory = categoryName.trim().toLowerCase();
-    const visibleOrgs = rawOrgs.filter(org => {
-      if (org.isVisible === false) return false;
-      const cat = org.category ? org.category.trim().toLowerCase() : '';
-      return cat === targetCategory;
-    });
-
-    if (visibleOrgs.length === 0) {
-      return { status: 'success', data: { services: [], total: 0 } };
-    }
-
-    const orgIds = visibleOrgs.map(org => org.id);
-    const allServices = await this.databaseService.listMultipleOrganizationServicesByProfileIds(orgIds);
+    // Fetch all categories for these organizations
+    const allCategories = await this.databaseService.listMultipleOrganizationServiceCategoriesByProfileIds(orgIds);
 
     const toFullUrl = (url: string | null) => {
       if (!url) return null;
@@ -535,13 +490,93 @@ export class DirectoryService {
       return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
     };
 
-    // Build helper map of orgProfiles without services to prevent massive nesting/circular references
     const orgMap = new Map<string, any>();
     for (const org of visibleOrgs) {
-      orgMap.set(org.id, this.mapOrganizationToPublicProfile(org, []));
+      orgMap.set(org.id, this.mapOrganizationToSummary(org));
     }
 
-    const services = allServices.map(s => {
+    const categories = allCategories.map(c => {
+      const orgProfile = orgMap.get(c.organizationId);
+      return {
+        id: c.id,
+        name: c.name,
+        imageUrl: toFullUrl(c.imageUrl),
+        price: c.price || null,
+        organization: orgProfile || null,
+      };
+    });
+
+    return {
+      status: 'success',
+      data: {
+        categories,
+      }
+    };
+  }
+
+  async getServicesByCategory(categoryIdOrName: string) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(categoryIdOrName);
+    
+    let services = [];
+    
+    // Find verified, visible organization profiles to filter services later
+    const rawOrgs = await this.databaseService.findOrganizations('VERIFIED', undefined, undefined, true);
+    const visibleOrgs = rawOrgs.filter(org => org.isVisible !== false);
+    if (visibleOrgs.length === 0) {
+      return { status: 'success', data: { services: [], total: 0 } };
+    }
+    const orgIds = visibleOrgs.map(org => org.id);
+    const orgMap = new Map<string, any>();
+    for (const org of visibleOrgs) {
+      orgMap.set(org.id, this.mapOrganizationToSummary(org));
+    }
+
+    if (isUuid) {
+      // Query by Category ID
+      services = await this.databaseService.db
+        .select()
+        .from(organizationServices)
+        .where(and(
+          eq(organizationServices.categoryId, categoryIdOrName),
+          inArray(organizationServices.organizationId, orgIds),
+          eq(organizationServices.isActive, true)
+        ));
+    } else {
+      // Query by Category Name (case-insensitive)
+      const categoriesWithName = await this.databaseService.db
+        .select()
+        .from(organizationServiceCategories)
+        .where(and(
+          inArray(organizationServiceCategories.organizationId, orgIds),
+          sql`LOWER(${organizationServiceCategories.name}) = LOWER(${categoryIdOrName})`
+        ));
+      
+      if (categoriesWithName.length > 0) {
+        const catIds = categoriesWithName.map(c => c.id);
+        services = await this.databaseService.db
+          .select()
+          .from(organizationServices)
+          .where(and(
+            inArray(organizationServices.categoryId, catIds),
+            eq(organizationServices.isActive, true)
+          ));
+      }
+    }
+
+    const toFullUrl = (url: string | null) => {
+      if (!url) return null;
+      const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+      if (url.startsWith('http')) {
+        if (url.includes('/uploads/')) {
+          const path = url.split('/uploads/')[1];
+          return `${baseUrl}/uploads/${path}`;
+        }
+        return url;
+      }
+      return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+    };
+
+    const mappedServices = services.map(s => {
       const orgProfile = orgMap.get(s.organizationId);
       return {
         id: s.id,
@@ -549,7 +584,7 @@ export class DirectoryService {
         description: (s as any).description || null,
         basePrice: Number(s.basePrice) || 0,
         durationMinutes: s.durationMinutes || 60,
-        imageUrl: toFullUrl((s as any).imageUrl),
+        imageUrl: toFullUrl(s.imageUrl),
         isActive: s.isActive,
         categoryId: s.categoryId || null,
         organization: orgProfile || null,
@@ -559,10 +594,11 @@ export class DirectoryService {
     return {
       status: 'success',
       data: {
-        services,
-        total: services.length,
+        services: mappedServices,
+        total: mappedServices.length,
       }
     };
   }
+
 }
 

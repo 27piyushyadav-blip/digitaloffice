@@ -300,6 +300,16 @@ export class DatabaseService {
       .orderBy(desc(organizationServiceCategories.createdAt));
   }
 
+  async listMultipleOrganizationServiceCategoriesByProfileIds(organizationProfileIds: string[]) {
+    if (organizationProfileIds.length === 0) return [];
+    return await this.db
+      .select()
+      .from(organizationServiceCategories)
+      .where(inArray(organizationServiceCategories.organizationId, organizationProfileIds))
+      .orderBy(desc(organizationServiceCategories.createdAt));
+  }
+
+
   async createOrganizationServiceCategory(organizationUserId: string, name: string, imageUrl?: string | null, price?: string | null) {
     const org = await this.ensureOrganizationProfile(organizationUserId);
     if (!org) return null;
