@@ -1,9 +1,14 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { MailService } from '@repo/mail';
+import { sendInvoiceEmailHelper } from '../common/utils/invoice-email.util';
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly mailService: MailService,
+  ) {}
 
   async createBooking(clientId: string, bookingData: {
     expertId: string;
@@ -41,6 +46,12 @@ export class BookingsService {
       duration,
       amount: String(amount),
     });
+
+    if (booking && booking.paymentStatus === 'paid') {
+      sendInvoiceEmailHelper(this.databaseService, this.mailService, booking.id, 'payment').catch(err => {
+        console.error('Failed to send invoice email after booking creation:', err);
+      });
+    }
 
     return {
       message: 'Booking created successfully',
@@ -155,6 +166,176 @@ export class BookingsService {
       status: 'cancelled',
       reason: reason || 'Cancelled by user',
       cancelledAt: new Date().toISOString(),
+    };
+  }
+
+  async getPublicBookingDetails(bookingId: string) {
+    const details = await this.databaseService.findBookingDetailsById(bookingId);
+    if (!details || !details.booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    const booking = details.booking;
+
+    // Check if it's a voice call booking by checking notes JSON
+    let parsedNotes: any = null;
+    try {
+      if (booking.notes) {
+        parsedNotes = JSON.parse(booking.notes);
+      }
+    } catch (e) {
+      // Not a JSON notes or not a voice call booking
+    }
+
+    if (!parsedNotes || !parsedNotes.isVoiceCallBooking) {
+      throw new BadRequestException('This booking is not available for public checkout');
+    }
+
+    return {
+      ...details,
+      customerDetails: {
+        name: parsedNotes.customerName,
+        phone: parsedNotes.customerPhone,
+        email: parsedNotes.customerEmail,
+        notes: parsedNotes.customerNotes,
+      },
+      services: parsedNotes.services || [],
+    };
+  }
+
+  async payPublicBooking(bookingId: string) {
+    const booking = await this.databaseService.findBookingById(bookingId);
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    // Check if it's a voice call booking by checking notes JSON
+    let parsedNotes: any = null;
+    try {
+      if (booking.notes) {
+        parsedNotes = JSON.parse(booking.notes);
+      }
+    } catch (e) {
+      // Not a JSON
+    }
+
+    if (!parsedNotes || !parsedNotes.isVoiceCallBooking) {
+      throw new BadRequestException('This booking is not eligible for public payment');
+    }
+
+    if (booking.paymentStatus === 'paid') {
+      return {
+        message: 'Booking is already paid',
+        booking,
+      };
+    }
+
+    // Update paymentStatus to paid, status to confirmed, acceptedAt to now
+    const updated = await this.databaseService.updateBookingStatus(bookingId, 'confirmed', {
+      paymentStatus: 'paid',
+      acceptedAt: new Date(),
+    });
+
+    if (updated) {
+      sendInvoiceEmailHelper(this.databaseService, this.mailService, updated.id, 'payment').catch(err => {
+        console.error('Failed to send invoice email after payment:', err);
+      });
+    }
+
+    return {
+      message: 'Booking paid and confirmed successfully',
+      booking: updated,
+    };
+  }
+
+  async getPublicBookingReceipt(bookingId: string) {
+    // Fetch booking + org details
+    const details = await this.databaseService.findBookingDetailsById(bookingId);
+    if (!details || !details.booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    const { booking, organization } = details;
+
+    // Fetch payment invoice
+    const invoice = await this.databaseService.findInvoiceByBookingIdAndType(bookingId, 'payment');
+
+    // Resolve customer details from notes or fallback
+    let customerName = 'Valued Customer';
+    let customerEmail = '';
+    let services: Array<{ name: string; price: number; quantity: number }> = [];
+
+    let parsedNotes: any = null;
+    try {
+      if (booking.notes) parsedNotes = JSON.parse(booking.notes);
+    } catch (e) {}
+
+    if (parsedNotes) {
+      customerName = parsedNotes.customerName || customerName;
+      customerEmail = parsedNotes.customerEmail || customerEmail;
+      services = Array.isArray(parsedNotes.services) ? parsedNotes.services : [];
+    }
+
+    if (services.length === 0) {
+      services = [{ name: booking.service, price: Number(booking.amount), quantity: 1 }];
+    }
+
+    if (!invoice) {
+      // Return a minimal receipt even if invoice record not found
+      return {
+        invoiceNumber: `INV-${bookingId.slice(0, 8).toUpperCase()}`,
+        date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+        bookingId: booking.id,
+        type: 'payment',
+        customerName,
+        customerEmail,
+        orgName: (organization as any)?.name || 'Digital Office',
+        orgAddress: (organization as any)?.addressLine1 || (organization as any)?.location || '',
+        orgPhone: (organization as any)?.phone || (organization as any)?.phoneNumber || '',
+        orgEmail: (organization as any)?.officialEmail || (organization as any)?.email || '',
+        services,
+        subtotal: Number(booking.amount),
+        tax: 0,
+        discount: 0,
+        amount: Number(booking.amount),
+      };
+    }
+
+    let metadata: any = invoice.metadata;
+    if (metadata && typeof metadata === 'string') {
+      try { metadata = JSON.parse(metadata); } catch (e) {}
+    }
+
+    if (metadata?.customerName) customerName = metadata.customerName;
+    if (metadata?.customerEmail) customerEmail = metadata.customerEmail;
+    if (Array.isArray(metadata?.services) && metadata.services.length > 0) {
+      services = metadata.services;
+    }
+
+    const dateFormatted = new Date(invoice.issuedAt).toLocaleDateString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric',
+    });
+
+    return {
+      invoiceNumber: invoice.invoiceNumber,
+      date: dateFormatted,
+      bookingId: booking.id,
+      type: invoice.type,
+      customerName,
+      customerEmail,
+      orgName: (organization as any)?.name || 'Digital Office',
+      orgAddress: (organization as any)?.addressLine1 || (organization as any)?.location || '',
+      orgPhone: (organization as any)?.phone || (organization as any)?.phoneNumber || '',
+      orgEmail: (organization as any)?.officialEmail || (organization as any)?.email || '',
+      services: services.map((s: any) => ({
+        name: s.name,
+        price: Number(s.price),
+        quantity: Number(s.quantity || 1),
+      })),
+      subtotal: Number(invoice.subtotal),
+      tax: Number(invoice.tax),
+      discount: Number(invoice.discount || 0),
+      amount: Number(invoice.amount),
     };
   }
 }

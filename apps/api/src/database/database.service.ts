@@ -19,7 +19,10 @@ import {
   reviews,
   refundRequests,
   editServiceRequests,
+  requestLogs,
+  invoices,
 } from '@repo/database';
+
 import { eq, and, desc, or, sql, isNull, inArray, getTableColumns } from 'drizzle-orm';
 
 @Injectable()
@@ -247,6 +250,7 @@ export class DatabaseService {
         discountValue: data.discountValue !== undefined && data.discountValue !== null ? String(data.discountValue) : null,
         durationMinutes: data.durationMinutes ?? null,
         imageUrl: data.imageUrl ?? null,
+        description: data.description ?? null,
         isActive: data.isActive ?? true,
       })
       .returning();
@@ -267,6 +271,7 @@ export class DatabaseService {
         ...(data.discountValue !== undefined ? { discountValue: data.discountValue === null ? null : String(data.discountValue) } : {}),
         ...(data.durationMinutes !== undefined ? { durationMinutes: data.durationMinutes } : {}),
         ...(data.imageUrl !== undefined ? { imageUrl: data.imageUrl } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
         ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
         ...(data.categoryId !== undefined ? { categoryId: data.categoryId } : {}),
         updatedAt: new Date(),
@@ -531,6 +536,9 @@ export class DatabaseService {
     scheduledDate: Date;
     duration: number;
     amount: string;
+    status?: string;
+    paymentStatus?: string;
+    notes?: string;
   }) {
     const [inserted] = await this.db
       .insert(bookings)
@@ -543,10 +551,45 @@ export class DatabaseService {
         scheduledDate: data.scheduledDate,
         duration: data.duration,
         amount: data.amount,
-        status: 'confirmed',
-        paymentStatus: 'paid',
+        status: data.status || 'confirmed',
+        paymentStatus: data.paymentStatus || 'paid',
+        notes: data.notes || null,
       })
       .returning();
+    
+    if (inserted && inserted.paymentStatus === 'paid') {
+      try {
+        let parsedNotes: any = null;
+        try {
+          if (inserted.notes) {
+            parsedNotes = JSON.parse(inserted.notes);
+          }
+        } catch (e) {}
+
+        const subtotal = Number(inserted.amount) || 0;
+        const tax = Math.round(subtotal * 0.18 * 100) / 100;
+        const totalAmount = subtotal + tax;
+
+        await this.createInvoice({
+          bookingId: inserted.id,
+          type: 'payment',
+          description: `Payment for booking: ${inserted.service}`,
+          subtotal,
+          tax,
+          amount: totalAmount,
+          status: 'paid',
+          metadata: {
+            customerName: parsedNotes?.customerName || null,
+            customerEmail: parsedNotes?.customerEmail || null,
+            customerPhone: parsedNotes?.customerPhone || null,
+            services: parsedNotes?.services || [{ name: inserted.service, price: subtotal, quantity: 1 }],
+          }
+        });
+      } catch (err) {
+        console.error('Failed to auto-generate payment invoice on create:', err);
+      }
+    }
+
     return inserted || null;
   }
 
@@ -824,6 +867,53 @@ export class DatabaseService {
     return result;
   }
 
+  async findOrganizationBookings(organizationId: string, status?: string) {
+    const [profile] = await this.db
+      .select()
+      .from(organizationProfile)
+      .where(eq(organizationProfile.userId, organizationId))
+      .limit(1);
+
+    const profileId = profile?.id;
+
+    let idCondition = eq(bookings.organizationId, organizationId);
+    if (profileId) {
+      idCondition = or(
+        eq(bookings.organizationId, organizationId),
+        eq(bookings.organizationId, profileId)
+      );
+    }
+
+    let conditions = [idCondition];
+    if (status) {
+      if (status.toLowerCase() === 'ongoing') {
+        conditions.push(eq(bookings.status, 'confirmed'));
+      } else {
+        conditions.push(eq(bookings.status, status));
+      }
+    }
+    
+    const result = await this.db
+      .select({
+        booking: bookings,
+        client: client,
+        expert: expert,
+        expertProfile: expertProfile,
+        refundRequest: refundRequests,
+        editRequest: editServiceRequests,
+      })
+      .from(bookings)
+      .leftJoin(client, eq(bookings.clientId, client.id))
+      .leftJoin(expert, eq(bookings.expertId, expert.id))
+      .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
+      .leftJoin(refundRequests, eq(bookings.id, refundRequests.bookingId))
+      .leftJoin(editServiceRequests, eq(bookings.id, editServiceRequests.bookingId))
+      .where(and(...conditions))
+      .orderBy(desc(bookings.createdAt));
+      
+    return result;
+  }
+
   async findBookingById(bookingId: string) {
     const [booking] = await this.db
       .select()
@@ -840,12 +930,29 @@ export class DatabaseService {
         booking: bookings,
         expert: expert,
         expertProfile: expertProfile,
-        organization: organisation,
+        organization: {
+          id: organizationProfile.id,
+          userId: organizationProfile.userId,
+          name: organizationProfile.name,
+          email: organisation.email,
+          phone: organizationProfile.phone,
+          officialEmail: organizationProfile.officialEmail,
+          location: organizationProfile.location,
+          addressLine1: organizationProfile.addressLine1,
+          city: organizationProfile.city,
+          state: organizationProfile.state,
+          zipCode: organizationProfile.zipCode,
+          logo: organizationProfile.logo,
+        },
       })
       .from(bookings)
       .leftJoin(expert, eq(bookings.expertId, expert.id))
       .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
       .leftJoin(organisation, eq(bookings.organizationId, organisation.id))
+      .leftJoin(organizationProfile, or(
+        eq(bookings.organizationId, organizationProfile.userId),
+        eq(bookings.organizationId, organizationProfile.id)
+      ))
       .where(eq(bookings.id, bookingId))
       .limit(1);
     
@@ -868,6 +975,47 @@ export class DatabaseService {
       .where(eq(bookings.id, bookingId))
       .returning();
     
+    if (updated && updateData.paymentStatus === 'paid') {
+      try {
+        const [existing] = await this.db
+          .select()
+          .from(invoices)
+          .where(and(eq(invoices.bookingId, bookingId), eq(invoices.type, 'payment')))
+          .limit(1);
+
+        if (!existing) {
+          let parsedNotes: any = null;
+          try {
+            if (updated.notes) {
+              parsedNotes = JSON.parse(updated.notes);
+            }
+          } catch (e) {}
+
+          const subtotal = Number(updated.amount) || 0;
+          const tax = Math.round(subtotal * 0.18 * 100) / 100;
+          const totalAmount = subtotal + tax;
+
+          await this.createInvoice({
+            bookingId: updated.id,
+            type: 'payment',
+            description: `Payment for booking: ${updated.service}`,
+            subtotal,
+            tax,
+            amount: totalAmount,
+            status: 'paid',
+            metadata: {
+              customerName: parsedNotes?.customerName || null,
+              customerEmail: parsedNotes?.customerEmail || null,
+              customerPhone: parsedNotes?.customerPhone || null,
+              services: parsedNotes?.services || [{ name: updated.service, price: subtotal, quantity: 1 }],
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Failed to auto-generate payment invoice:', err);
+      }
+    }
+
     return updated || null;
   }
 
@@ -915,6 +1063,22 @@ export class DatabaseService {
         metadata: data.metadata,
       })
       .returning();
+
+    if (refund) {
+      try {
+        await this.createRequestLog({
+          requestId: refund.id,
+          requestType: 'refund',
+          action: 'submitted',
+          performedBy: 'client',
+          actorId: data.clientId,
+          details: `Refund request of $${data.amount} submitted by client.`,
+          metadata: { amount: data.amount, reason: data.reason },
+        });
+      } catch (err) {
+        console.error('Failed to create request log:', err);
+      }
+    }
     return refund;
   }
 
@@ -930,10 +1094,14 @@ export class DatabaseService {
         refund: refundRequests,
         client: client,
         booking: bookings,
+        expert: expert,
+        expertProfile: expertProfile,
       })
       .from(refundRequests)
       .leftJoin(client, eq(refundRequests.clientId, client.id))
       .leftJoin(bookings, eq(refundRequests.bookingId, bookings.id))
+      .leftJoin(expert, eq(bookings.expertId, expert.id))
+      .leftJoin(expertProfile, eq(expert.id, expertProfile.userId))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(refundRequests.requestedAt));
 
@@ -962,8 +1130,168 @@ export class DatabaseService {
       .where(eq(refundRequests.id, refundId))
       .returning();
     
+    if (updated) {
+      try {
+        let details = `Refund request status updated to ${status}.`;
+        if (status === 'approved') {
+          details = `Refund request of $${updated.amount} approved by organization.`;
+          try {
+            const subtotal = Number(updated.amount) || 0;
+            const tax = Math.round(subtotal * 0.18 * 100) / 100;
+            const totalAmount = subtotal + tax;
+
+            const [bookingData] = await this.db
+              .select()
+              .from(bookings)
+              .where(eq(bookings.id, updated.bookingId))
+              .limit(1);
+
+            let parsedNotes: any = null;
+            if (bookingData && bookingData.notes) {
+              try {
+                parsedNotes = JSON.parse(bookingData.notes);
+              } catch (e) {}
+            }
+
+            await this.createInvoice({
+              bookingId: updated.bookingId,
+              type: 'refund',
+              description: `Refund for booking: ${bookingData?.service || 'Consultation Service'}. Reason: ${updated.reason || 'Requested by client'}`,
+              subtotal,
+              tax,
+              amount: totalAmount,
+              status: 'paid',
+              metadata: {
+                customerName: parsedNotes?.customerName || null,
+                customerEmail: parsedNotes?.customerEmail || null,
+                customerPhone: parsedNotes?.customerPhone || null,
+                refundReason: updated.reason || null,
+                services: parsedNotes?.services || (bookingData ? [{ name: bookingData.service, price: Number(bookingData.amount), quantity: 1 }] : [])
+              }
+            });
+          } catch (invoiceErr) {
+            console.error('Failed to auto-generate refund invoice:', invoiceErr);
+          }
+        } else if (status === 'rejected') {
+          details = `Refund request rejected. Reason: ${rejectionReason || 'No reason specified'}`;
+        }
+        await this.createRequestLog({
+          requestId: updated.id,
+          requestType: 'refund',
+          action: status,
+          performedBy: 'organization',
+          actorId: updated.organizationId || undefined,
+          details,
+          metadata: { status, rejectionReason },
+        });
+      } catch (err) {
+        console.error('Failed to create request log:', err);
+      }
+    }
+    
     return updated || null;
   }
+
+  // Request logs helper methods
+  async createRequestLog(data: {
+    requestId: string;
+    requestType: string;
+    action: string;
+    performedBy: string;
+    actorId?: string;
+    details: string;
+    metadata?: any;
+  }) {
+    const [log] = await this.db
+      .insert(requestLogs)
+      .values({
+        requestId: data.requestId,
+        requestType: data.requestType,
+        action: data.action,
+        performedBy: data.performedBy,
+        actorId: data.actorId,
+        details: data.details,
+        metadata: data.metadata,
+      })
+      .returning();
+    return log;
+  }
+
+  async createInvoice(data: {
+    bookingId: string;
+    type: 'payment' | 'edit_service' | 'refund';
+    description?: string;
+    subtotal: string | number;
+    tax?: string | number;
+    discount?: string | number;
+    amount: string | number;
+    status?: string;
+    metadata?: any;
+  }) {
+    const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randStr = Math.floor(1000 + Math.random() * 9000);
+    const invoiceNumber = `INV-${todayStr}-${randStr}`;
+
+    const [inserted] = await this.db
+      .insert(invoices)
+      .values({
+        invoiceNumber,
+        bookingId: data.bookingId,
+        type: data.type,
+        description: data.description || null,
+        subtotal: String(data.subtotal),
+        tax: String(data.tax || '0.00'),
+        discount: String(data.discount || '0.00'),
+        amount: String(data.amount),
+        status: data.status || 'issued',
+        metadata: data.metadata || null,
+        issuedAt: new Date(),
+      })
+      .returning();
+    
+    return inserted || null;
+  }
+
+  async findInvoiceByBookingIdAndType(bookingId: string, type: 'payment' | 'edit_service' | 'refund') {
+    const [invoice] = await this.db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.bookingId, bookingId), eq(invoices.type, type)))
+      .orderBy(desc(invoices.issuedAt))
+      .limit(1);
+    
+    return invoice || null;
+  }
+
+  async getRequestLogsByRequestId(requestId: string) {
+    return await this.db
+      .select()
+      .from(requestLogs)
+      .where(eq(requestLogs.requestId, requestId))
+      .orderBy(desc(requestLogs.createdAt));
+  }
+
+  async getOrganizationRequestLogs(organizationId: string) {
+    const refunds = await this.db
+      .select({ id: refundRequests.id })
+      .from(refundRequests)
+      .where(eq(refundRequests.organizationId, organizationId));
+    
+    const edits = await this.db
+      .select({ id: editServiceRequests.id })
+      .from(editServiceRequests)
+      .where(eq(editServiceRequests.organizationId, organizationId));
+    
+    const requestIds = [...refunds.map(r => r.id), ...edits.map(e => e.id)];
+    if (requestIds.length === 0) return [];
+
+    return await this.db
+      .select()
+      .from(requestLogs)
+      .where(inArray(requestLogs.requestId, requestIds))
+      .orderBy(desc(requestLogs.createdAt));
+  }
+
 
   async updateBookingOrganizationIds() {
     // Update all bookings to use the correct organisation.id instead of organization_profile.id
@@ -1066,6 +1394,28 @@ export class DatabaseService {
         metadata: data.metadata,
       })
       .returning();
+
+    if (editRequest) {
+      try {
+        await this.createRequestLog({
+          requestId: editRequest.id,
+          requestType: 'edit_service',
+          action: 'submitted',
+          performedBy: 'organization',
+          actorId: data.organizationId,
+          details: `Service change request submitted: change from "${data.originalService}" ($${data.originalAmount}) to "${data.newService}" ($${data.newAmount}).`,
+          metadata: {
+            originalService: data.originalService,
+            originalAmount: data.originalAmount,
+            newService: data.newService,
+            newAmount: data.newAmount,
+            reason: data.reason,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to create request log:', err);
+      }
+    }
     return editRequest;
   }
 
@@ -1135,6 +1485,68 @@ export class DatabaseService {
       .set(updateData)
       .where(eq(editServiceRequests.id, requestId))
       .returning();
+
+    if (updated) {
+      try {
+        let details = `Service change request status updated to ${status}.`;
+        if (status === 'approved') {
+          details = `Service change request approved: changed to "${updated.newService}" ($${updated.newAmount}).`;
+          try {
+            const diffAmount = Number(updated.newAmount) - Number(updated.originalAmount);
+            const subtotal = diffAmount > 0 ? diffAmount : 0;
+            const tax = Math.round(subtotal * 0.18 * 100) / 100;
+            const totalAmount = subtotal + tax;
+
+            const [bookingData] = await this.db
+              .select()
+              .from(bookings)
+              .where(eq(bookings.id, updated.bookingId))
+              .limit(1);
+
+            let parsedNotes: any = null;
+            if (bookingData && bookingData.notes) {
+              try {
+                parsedNotes = JSON.parse(bookingData.notes);
+              } catch (e) {}
+            }
+
+            await this.createInvoice({
+              bookingId: updated.bookingId,
+              type: 'edit_service',
+              description: `Service upgrade: Changed "${updated.originalService}" to "${updated.newService}"`,
+              subtotal,
+              tax,
+              amount: totalAmount,
+              status: 'paid',
+              metadata: {
+                customerName: parsedNotes?.customerName || null,
+                customerEmail: parsedNotes?.customerEmail || null,
+                customerPhone: parsedNotes?.customerPhone || null,
+                services: [
+                  { name: `Original Service: ${updated.originalService}`, price: Number(updated.originalAmount), quantity: 1 },
+                  { name: `Updated Service: ${updated.newService}`, price: Number(updated.newAmount), quantity: 1 }
+                ]
+              }
+            });
+          } catch (invoiceErr) {
+            console.error('Failed to auto-generate edit service invoice:', invoiceErr);
+          }
+        } else if (status === 'rejected') {
+          details = `Service change request rejected. Reason: ${rejectionReason || 'No reason specified'}`;
+        }
+        await this.createRequestLog({
+          requestId: updated.id,
+          requestType: 'edit_service',
+          action: status,
+          performedBy: 'client',
+          actorId: updated.clientId || undefined,
+          details,
+          metadata: { status, rejectionReason },
+        });
+      } catch (err) {
+        console.error('Failed to create request log:', err);
+      }
+    }
     
     return updated || null;
   }

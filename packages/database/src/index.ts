@@ -14,3 +14,6 @@ export * from "./schema/services";
 export * from "./schema/reviews";
 export * from "./schema/refund-requests";
 export * from "./schema/edit-service-requests";
+export * from "./schema/request-logs";
+export * from "./schema/invoices";
+

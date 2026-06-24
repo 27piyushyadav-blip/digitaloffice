@@ -1,0 +1,124 @@
+openapi: 3.0.3
+info:
+  title: Health & Status Monitoring APIs
+  description: Public API documentation for the backend liveness/readiness probes and the frontend status endpoints.
+  version: 1.0.0
+servers:
+  # Production Environments
+  - url: https://api.digitaloffices.com.au
+    description: Production Backend API Server
+  - url: https://digitaloffices.com.au
+    description: Production Client Site Frontend
+  - url: https://experts.digitaloffices.com.au
+    description: Production Expert Panel Frontend
+  - url: https://admin.digitaloffices.com.au
+    description: Production Admin Panel Frontend
+  - url: https://organisations.digitaloffices.com.au
+    description: Production Organization Panel Frontend
+  # Local Environments
+  - url: http://localhost:3000
+    description: Local Backend API Server
+  - url: http://localhost:3001
+    description: Local Expert Panel Frontend
+  - url: http://localhost:3002
+    description: Local Client Site Frontend
+  - url: http://localhost:3003
+    description: Local Admin Panel Frontend
+  - url: http://localhost:3004
+    description: Local Organization Panel Frontend
+
+paths:
+  # Backend Liveness Probe
+  /live:
+    get:
+      summary: Backend Liveness Probe
+      description: Verifies that the backend application is running. Used by load balancers, monitoring tools, and Kubernetes liveness probes.
+      operationId: getLiveness
+      security: []  # Public endpoint (No JWT required)
+      responses:
+        '200':
+          description: Backend application is healthy and running.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+
+  # Backend Readiness Probe
+  /ready:
+    get:
+      summary: Backend Readiness Probe
+      description: Verifies that the backend application and its critical dependencies (Database) are healthy and ready to accept traffic.
+      operationId: getReadiness
+      security: []  # Public endpoint (No JWT required)
+      responses:
+        '200':
+          description: All checks passed. Backend is ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+                  database:
+                    type: string
+                    example: "healthy"
+        '503':
+          description: One or more dependencies are down/unreachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "Unhealthy"
+                  database:
+                    type: string
+                    example: "unhealthy"
+                  error:
+                    type: string
+                    example: "Connection timeout or connection refused"
+
+  # Frontend Status API
+  /api/status:
+    get:
+      summary: Frontend to Backend Connection Status
+      description: Exposed by frontend applications to verify they can successfully communicate with the backend.
+      operationId: getFrontendStatus
+      security: []  # Public endpoint
+      responses:
+        '200':
+          description: Frontend successfully communicated with backend and backend is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+                  backend:
+                    type: string
+                    example: "healthy"
+        '503':
+          description: Frontend failed to communicate with the backend or the backend returned an unhealthy status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "Error"
+                  message:
+                    type: string
+                    example: "Cannot connect to backend"
+                  error:
+                    type: string
+                    example: "fetch failed"

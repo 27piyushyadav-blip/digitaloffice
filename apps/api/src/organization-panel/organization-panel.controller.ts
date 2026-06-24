@@ -568,6 +568,32 @@ export class OrganizationPanelController {
     return this.organizationPanelService.cancelBooking(organizationId, bookingId);
   }
 
+  @Post('/bookings/:bookingId/accept')
+  async acceptBooking(
+    @GetCurrentUserId() organizationId: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.organizationPanelService.acceptBooking(organizationId, bookingId);
+  }
+
+  @Post('/bookings/:bookingId/reject')
+  async rejectBooking(
+    @GetCurrentUserId() organizationId: string,
+    @Param('bookingId') bookingId: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.organizationPanelService.rejectBooking(organizationId, bookingId, body.reason);
+  }
+
+  @Post('/bookings/:bookingId/reschedule')
+  async rescheduleBooking(
+    @GetCurrentUserId() organizationId: string,
+    @Param('bookingId') bookingId: string,
+    @Body() body: { scheduledDate: string; expertId?: string },
+  ) {
+    return this.organizationPanelService.rescheduleBooking(organizationId, bookingId, body);
+  }
+
   @Post('/bookings/:bookingId/reassign')
   async reassignBooking(
     @GetCurrentUserId() organizationId: string,
@@ -595,8 +621,12 @@ export class OrganizationPanelController {
 
   // Analytics & Revenue APIs
   @Get('/dashboard')
-  async getDashboard(@GetCurrentUserId() organizationId: string) {
-    return this.organizationPanelService.getDashboard(organizationId);
+  async getDashboard(
+    @GetCurrentUserId() organizationId: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.organizationPanelService.getDashboard(organizationId, startDate, endDate);
   }
 
   @Get('/revenue')
@@ -725,6 +755,30 @@ export class OrganizationPanelController {
   ) {
     return this.organizationPanelService.updateEditServiceStatus(requestId, 'rejected', body.reason);
   }
+
+  @Get('/action-centre/requests')
+  async getActionCentreRequests(
+    @GetCurrentUserId() organizationId: string,
+  ) {
+    return this.organizationPanelService.getActionCentreRequests(organizationId);
+  }
+
+  @Get('/action-centre/requests/:id')
+  async getRequestDetails(
+    @GetCurrentUserId() organizationId: string,
+    @Param('id') id: string,
+    @Query('type') type: string,
+  ) {
+    return this.organizationPanelService.getRequestDetails(organizationId, id, type);
+  }
+
+  @Get('/action-centre/logs')
+  async getRequestLogs(
+    @GetCurrentUserId() organizationId: string,
+  ) {
+    return this.organizationPanelService.getOrganizationRequestLogs(organizationId);
+  }
 }
+
 // Trigger reload after database package build (v2)
 

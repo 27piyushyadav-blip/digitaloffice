@@ -12,6 +12,7 @@ import {
 import { BookingsService } from './bookings.service';
 import { GetCurrentUserId } from '../common/decorators';
 import { AtGuard } from '../auth/guards/at.guard';
+import { Public } from '../common/decorators/public.decorator';
 
 @Controller('bookings')
 @UseGuards(AtGuard)
@@ -42,6 +43,30 @@ export class BookingsController {
   ) {
     const bookings = await this.bookingsService.getClientBookings(clientId, status);
     return bookings;
+  }
+
+  @Public()
+  @Get('public/:bookingId')
+  async getPublicBookingDetails(
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.getPublicBookingDetails(bookingId);
+  }
+
+  @Public()
+  @Post('public/:bookingId/pay')
+  async payPublicBooking(
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.payPublicBooking(bookingId);
+  }
+
+  @Public()
+  @Get('public/:bookingId/receipt')
+  async getPublicBookingReceipt(
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.getPublicBookingReceipt(bookingId);
   }
 
   @Get(':bookingId')

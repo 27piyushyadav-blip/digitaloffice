@@ -46,6 +46,7 @@ export const organizationServices = pgTable(
     discountValue: decimal("discount_value", { precision: 10, scale: 2 }),
     durationMinutes: integer("duration_minutes"),
     imageUrl: text("image_url"),
+    description: text("description"),
     isActive: boolean("is_active").default(true).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),

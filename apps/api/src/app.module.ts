@@ -21,6 +21,7 @@ import { OrganizationPanelModule } from "./organization-panel/organization-panel
 import { AdminPanelModule } from "./admin-panel/admin-panel.module";
 import { DirectoryModule } from "./directory/directory.module";
 import { OffersModule } from "./offers/offers.module";
+import { HealthModule } from "./health/health.module";
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { OffersModule } from "./offers/offers.module";
     OrganizationPanelModule,
     AdminPanelModule,
     DirectoryModule,
+    HealthModule,
   ],
   providers: [
     {

@@ -25,3 +25,4 @@ async function bootstrap() {
 }
 
 bootstrap();
+// Trigger reload to load updated getDashboard parameters

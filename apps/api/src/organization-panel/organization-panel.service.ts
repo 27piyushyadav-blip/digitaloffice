@@ -1,12 +1,13 @@
-import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
-import { expert, expertProfile, expertOrganizations, organisation, organizationProfile } from '@repo/database';
-import { eq, and } from 'drizzle-orm';
+import { expert, expertProfile, expertOrganizations, organisation, organizationProfile, bookings } from '@repo/database';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 
 import { MailService } from '@repo/mail';
+import { sendInvoiceEmailHelper } from '../common/utils/invoice-email.util';
 
 // Force reload after database rebuild
 @Injectable()
@@ -359,6 +360,7 @@ export class OrganizationPanelService {
           workHistory: expertProfile.workHistory,
           services: expertProfile.services,
           tags: expertProfile.tags,
+          associationStatus: expertOrganizations.status,
         })
         .from(expertOrganizations)
         .innerJoin(expert, eq(expertOrganizations.expertId, expert.id))
@@ -371,6 +373,7 @@ export class OrganizationPanelService {
           avatar: this.toFullUrl(e.avatar),
           id: e.id,
           status: e.status === 'LIVE' ? 'active' : 'hidden',
+          associationStatus: e.associationStatus,
           joinedAt: e.createdAt,
           totalBookings: 0, 
           revenue: 0,      
@@ -704,6 +707,16 @@ const organizationProfileId = orgProfile[0].id;
       .set({ verificationStatus: dbStatus })
       .where(eq(expertProfile.userId, expertId));
 
+    if (status === 'active') {
+      await this.databaseService.db
+        .update(expertOrganizations)
+        .set({ status: 'APPROVED', joinedAt: new Date() })
+        .where(and(
+          eq(expertOrganizations.expertId, expertId),
+          eq(expertOrganizations.organizationId, organizationProfileId)
+        ));
+    }
+
     return { message: `Expert status updated to ${status}` };
   }
 
@@ -884,75 +897,264 @@ const organizationProfileId = orgProfile[0].id;
 
   // Booking Management APIs
   async getOrganizationBookings(organizationId: string, status?: string) {
-    // TODO: Implement actual database query
-    const bookings = [
-      {
-        id: 'book_1',
-        clientId: 'client_1',
-        clientName: 'John Doe',
-        expertId: 'exp_1',
-        expertName: 'Dr. Sarah Johnson',
-        service: 'Legal Consultation',
-        scheduledDate: new Date('2024-03-10T14:00:00Z'),
-        duration: 60,
-        amount: 2000,
-        status: 'CONFIRMED',
-        paymentStatus: 'PAID',
-      },
-      {
-        id: 'book_2',
-        clientId: 'client_2',
-        clientName: 'Jane Smith',
-        expertId: 'exp_2',
-        expertName: 'Dr. Michael Chen',
-        service: 'Tax Filing Help',
-        scheduledDate: new Date('2024-03-10T15:30:00Z'),
-        duration: 45,
-        amount: 1500,
-        status: 'PENDING',
-        paymentStatus: 'PENDING',
-      },
-    ];
+    const dbBookings = await this.databaseService.findOrganizationBookings(organizationId, status);
+    
+    // Deduplicate database rows resulting from left joins
+    const seenIds = new Set<string>();
+    const uniqueDbBookings = [];
+    for (const b of dbBookings) {
+      if (b.booking && b.booking.id && !seenIds.has(b.booking.id)) {
+        seenIds.add(b.booking.id);
+        uniqueDbBookings.push(b);
+      }
+    }
+    
+    const mapped = uniqueDbBookings.map((b: any) => {
+      const scheduledDateTime = new Date(b.booking.scheduledDate);
+      
+      let clientName = b.client?.name || 'Unknown User';
+      let clientPhone = b.client?.phone || null;
 
-    const filteredBookings = status 
-      ? bookings.filter(booking => booking.status.toLowerCase() === status.toLowerCase())
-      : bookings;
+      if (b.booking.notes) {
+        try {
+          const parsedNotes = JSON.parse(b.booking.notes);
+          if (parsedNotes && parsedNotes.isVoiceCallBooking) {
+            if (parsedNotes.customerName) clientName = parsedNotes.customerName;
+            if (parsedNotes.customerPhone) clientPhone = parsedNotes.customerPhone;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+      
+      return {
+        id: b.booking.id,
+        clientId: b.booking.clientId,
+        clientName,
+        clientPhone,
+        userAvatar: b.client?.image || null,
+        expertId: b.booking.expertId,
+        expertName: b.expert?.name || 'Unassigned',
+        expertAvatar: b.expertProfile?.profileImage || null,
+        expertSpecialty: b.expertProfile?.specialization || b.expertProfile?.category || 'Therapy',
+        service: b.booking.service,
+        scheduledDate: scheduledDateTime,
+        duration: b.booking.duration,
+        amount: b.booking.amount,
+        status: b.booking.status,
+        paymentStatus: b.booking.paymentStatus,
+        type: b.booking.consultationType || 'online',
+        notes: b.booking.notes,
+        cancellationReason: b.booking.cancellationReason,
+        rejectionReason: b.booking.rejectionReason,
+      };
+    });
+
+    let finalBookings = mapped;
+    if (status && status.toLowerCase() === 'ongoing') {
+      const now = new Date();
+      finalBookings = mapped.filter((b: any) => {
+        const dateObj = new Date(b.scheduledDate);
+        const startTime = dateObj.getTime();
+        const endTime = startTime + (b.duration || 60) * 60 * 1000;
+        const curTime = now.getTime();
+        
+        return b.status.toLowerCase() === 'confirmed' && curTime >= startTime - 15 * 60 * 1000 && curTime <= endTime + 15 * 60 * 1000;
+      });
+    }
 
     return {
-      bookings: filteredBookings,
-      total: filteredBookings.length,
+      bookings: finalBookings,
+      total: finalBookings.length,
       status: status || 'all',
     };
   }
 
   async getBookingDetails(organizationId: string, bookingId: string) {
-    const [booking] = await this.databaseService.findBookingById(bookingId);
-    if (!booking) {
-      throw new Error('Booking not found');
+    const details = await this.databaseService.findBookingDetailsById(bookingId);
+    if (!details || !details.booking) {
+      throw new NotFoundException('Booking not found');
     }
-    return booking;
+    const org = await this.getProfile(organizationId);
+    if (details.booking.organizationId !== organizationId && details.booking.organizationId !== org.id) {
+      throw new BadRequestException('You do not have permission to view this booking');
+    }
+    
+    let clientName = details.client?.name || 'Unknown User';
+    let clientPhone = details.client?.phone || null;
+    let clientEmail = details.client?.email || null;
+
+    if (details.booking.notes) {
+      try {
+        const parsedNotes = JSON.parse(details.booking.notes);
+        if (parsedNotes && parsedNotes.isVoiceCallBooking) {
+          if (parsedNotes.customerName) clientName = parsedNotes.customerName;
+          if (parsedNotes.customerPhone) clientPhone = parsedNotes.customerPhone;
+          if (parsedNotes.customerEmail) clientEmail = parsedNotes.customerEmail;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    
+    return {
+      id: details.booking.id,
+      clientId: details.booking.clientId,
+      clientName,
+      clientPhone,
+      clientEmail,
+      userAvatar: details.client?.image || null,
+      expertId: details.booking.expertId,
+      expertName: details.expert?.name || 'Unassigned',
+      expertAvatar: details.expertProfile?.profileImage || null,
+      service: details.booking.service,
+      scheduledDate: details.booking.scheduledDate,
+      duration: details.booking.duration,
+      amount: details.booking.amount,
+      status: details.booking.status,
+      paymentStatus: details.booking.paymentStatus,
+      type: details.booking.consultationType || 'online',
+      notes: details.booking.notes,
+      cancellationReason: details.booking.cancellationReason,
+      rejectionReason: details.booking.rejectionReason,
+      createdAt: details.booking.createdAt,
+    };
   }
 
   async cancelBooking(organizationId: string, bookingId: string) {
-    // TODO: Implement actual database update
+    const booking = await this.databaseService.findBookingById(bookingId);
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    const org = await this.getProfile(organizationId);
+    if (booking.organizationId !== organizationId && booking.organizationId !== org.id) {
+      throw new BadRequestException('You do not have permission to cancel this booking');
+    }
+    
+    await this.databaseService.updateBookingStatus(bookingId, 'cancelled', {
+      cancelledAt: new Date(),
+      cancellationReason: 'Cancelled by organization admin'
+    });
+    
     return {
       message: 'Booking cancelled successfully',
       bookingId,
       organizationId,
       cancelledAt: new Date(),
-      refundStatus: 'PROCESSING',
+      status: 'cancelled',
     };
   }
 
   async reassignBooking(organizationId: string, bookingId: string, reassignData: any) {
-    // TODO: Implement actual database update
+    const booking = await this.databaseService.findBookingById(bookingId);
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    const org = await this.getProfile(organizationId);
+    if (booking.organizationId !== organizationId && booking.organizationId !== org.id) {
+      throw new BadRequestException('You do not have permission to reassign this booking');
+    }
+    
+    const expertId = reassignData.expertId;
+    const expertInfo = await this.databaseService.findExpertById(expertId);
+    if (!expertInfo) {
+      throw new BadRequestException('Expert not found');
+    }
+    
+    await this.databaseService.db
+      .update(bookings)
+      .set({
+        expertId: expertId,
+        updatedAt: new Date(),
+      })
+      .where(eq(bookings.id, bookingId));
+      
     return {
       message: 'Booking reassigned successfully',
       bookingId,
       organizationId,
-      newExpertId: reassignData.expertId,
-      newExpertName: 'Dr. Emily Davis',
+      newExpertId: expertId,
+      newExpertName: expertInfo.name,
       reassignedAt: new Date(),
+    };
+  }
+
+  async acceptBooking(organizationId: string, bookingId: string) {
+    const booking = await this.databaseService.findBookingById(bookingId);
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    const org = await this.getProfile(organizationId);
+    if (booking.organizationId !== organizationId && booking.organizationId !== org.id) {
+      throw new BadRequestException('You do not have permission to accept this booking');
+    }
+    if (booking.status !== 'pending') {
+      throw new BadRequestException('Booking is not in pending status');
+    }
+    
+    await this.databaseService.updateBookingStatus(bookingId, 'confirmed', { acceptedAt: new Date() });
+    
+    return {
+      message: 'Booking accepted successfully',
+      bookingId,
+      status: 'confirmed',
+      acceptedAt: new Date(),
+    };
+  }
+
+  async rejectBooking(organizationId: string, bookingId: string, reason?: string) {
+    const booking = await this.databaseService.findBookingById(bookingId);
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    const org = await this.getProfile(organizationId);
+    if (booking.organizationId !== organizationId && booking.organizationId !== org.id) {
+      throw new BadRequestException('You do not have permission to reject this booking');
+    }
+    if (booking.status !== 'pending') {
+      throw new BadRequestException('Booking is not in pending status');
+    }
+    
+    await this.databaseService.updateBookingStatus(bookingId, 'rejected', { 
+      rejectedAt: new Date(),
+      rejectionReason: reason || 'Rejected by organization'
+    });
+    
+    return {
+      message: 'Booking rejected successfully',
+      bookingId,
+      status: 'rejected',
+      rejectedAt: new Date(),
+    };
+  }
+
+  async rescheduleBooking(organizationId: string, bookingId: string, data: { scheduledDate: string; expertId?: string }) {
+    const booking = await this.databaseService.findBookingById(bookingId);
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    const org = await this.getProfile(organizationId);
+    if (booking.organizationId !== organizationId && booking.organizationId !== org.id) {
+      throw new BadRequestException('You do not have permission to reschedule this booking');
+    }
+    
+    const updateFields: any = {
+      scheduledDate: new Date(data.scheduledDate),
+      updatedAt: new Date(),
+    };
+    if (data.expertId) {
+      updateFields.expertId = data.expertId;
+    }
+    
+    await this.databaseService.db
+      .update(bookings)
+      .set(updateFields)
+      .where(eq(bookings.id, bookingId));
+      
+    return {
+      message: 'Booking rescheduled successfully',
+      bookingId,
+      scheduledDate: data.scheduledDate,
     };
   }
 
@@ -967,7 +1169,6 @@ const organizationProfileId = orgProfile[0].id;
       scheduledDate,
       scheduledTime,
       totalAmount,
-      paymentLink,
       orderId,
     } = bookingData;
 
@@ -989,37 +1190,82 @@ const organizationProfileId = orgProfile[0].id;
     // Calculate total duration from services
     const totalDuration = services.reduce((sum: number, s: any) => sum + (s.duration || 60), 0);
 
-    // Parse scheduled date and time to create a proper Date object
+    // Parse scheduled date and time to create a proper Date object safely
     let scheduledDateTime: Date | null = null;
     if (scheduledDate && scheduledTime) {
-      const [hours, minutes] = scheduledTime.split(':').map(Number);
-      const [period] = scheduledTime.split(' ');
-      let hour24 = hours;
-      if (period === 'PM' && hours !== 12) hour24 += 12;
-      if (period === 'AM' && hours === 12) hour24 = 0;
+      try {
+        const [timePart, period] = scheduledTime.split(' ');
+        const [hoursStr, minutesStr] = timePart.split(':');
+        const hours = Number(hoursStr);
+        const minutes = Number(minutesStr);
 
-      const dateObj = new Date(scheduledDate);
-      dateObj.setHours(hour24, minutes, 0, 0);
-      scheduledDateTime = dateObj;
+        let hour24 = hours;
+        if (period === 'PM' && hours !== 12) hour24 += 12;
+        if (period === 'AM' && hours === 12) hour24 = 0;
+
+        const dateObj = new Date(scheduledDate);
+        dateObj.setHours(hour24, minutes, 0, 0);
+        if (!isNaN(dateObj.getTime())) {
+          scheduledDateTime = dateObj;
+        }
+      } catch (e) {
+        console.error('Failed to parse scheduled date time:', e);
+      }
     }
+
+    if (!scheduledDateTime || isNaN(scheduledDateTime.getTime())) {
+      scheduledDateTime = new Date();
+    }
+
+    // Assign fallback expert if none chosen (since database expert_id is NOT NULL constraint)
+    let finalExpertId = expertId;
+    if (!finalExpertId) {
+      const experts = await this.databaseService.findOrganizationExperts(org.id);
+      if (experts && experts.length > 0) {
+        finalExpertId = experts[0].expert.id;
+      } else {
+        throw new BadRequestException('At least one expert must be registered under this organization to create a booking');
+      }
+    }
+
+    // Format customer details and services as a JSON string with isVoiceCallBooking = true
+    const notesJson = JSON.stringify({
+      isVoiceCallBooking: true,
+      customerName,
+      customerPhone,
+      customerEmail: customerEmail || null,
+      customerNotes: customerNotes || null,
+      services: services.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        price: s.price,
+        quantity: s.quantity || 1,
+      })),
+    });
 
     // Create booking in database
     const booking = await this.databaseService.createBooking({
       clientId: clientId,
-      expertId: expertId || null,
-      organizationId: org.id,
+      expertId: finalExpertId,
+      organizationId: organizationId,
       service: services.map((s: any) => s.name).join(', '),
       consultationType: 'offline', // Voice call orders are typically offline/in-person
       scheduledDate: scheduledDateTime || new Date(),
       duration: totalDuration,
       amount: String(totalAmount),
+      status: 'pending',
+      paymentStatus: 'pending',
+      notes: notesJson,
     });
+
+    const clientUrl = this.configService.get('CLIENT_FRONTEND_URL') || 'http://localhost:3002';
+    const generatedPaymentLink = `${clientUrl.replace(/\/$/, '')}/invoice/${booking.id}`;
 
     return {
       message: 'Voice call order created successfully',
       booking: {
         id: booking.id,
-        organizationId: org.id,
+        organizationId: organizationId,
         customer: {
           name: customerName,
           phone: customerPhone,
@@ -1033,11 +1279,11 @@ const organizationProfileId = orgProfile[0].id;
           quantity: s.quantity || 1,
           total: s.price * (s.quantity || 1),
         })),
-        expertId: expertId || null,
+        expertId: finalExpertId,
         scheduledDate: scheduledDate || null,
         scheduledTime: scheduledTime || null,
         totalAmount: totalAmount || 0,
-        paymentLink: paymentLink || null,
+        paymentLink: generatedPaymentLink,
         status: booking.status,
         createdAt: booking.createdAt,
       },
@@ -1053,6 +1299,28 @@ const organizationProfileId = orgProfile[0].id;
 
     const org = await this.getProfile(organizationId);
 
+    // Try to extract services from booking notes
+    let servicesList: string[] = [];
+    try {
+      const url = new URL(paymentLink);
+      let bookingId = url.searchParams.get('bookingId');
+      if (!bookingId) {
+        const pathParts = url.pathname.split('/');
+        bookingId = pathParts[pathParts.length - 1];
+      }
+      if (bookingId) {
+        const details = await this.databaseService.findBookingById(bookingId);
+        if (details && details.notes) {
+          const parsed = JSON.parse(details.notes);
+          if (parsed && parsed.services && Array.isArray(parsed.services)) {
+            servicesList = parsed.services.map((s: any) => `${s.name} (x${s.quantity || 1})`);
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore URL parsing or DB errors
+    }
+
     try {
       await this.mailService.sendPaymentLinkEmail(
         customerEmail,
@@ -1060,6 +1328,7 @@ const organizationProfileId = orgProfile[0].id;
         paymentLink,
         totalAmount || 0,
         org.name,
+        servicesList,
       );
       return { message: 'Payment link sent via email successfully' };
     } catch (err: any) {
@@ -1068,29 +1337,110 @@ const organizationProfileId = orgProfile[0].id;
   }
 
   // Analytics & Revenue APIs
-  async getDashboard(organizationId: string) {
-    // TODO: Implement actual database query
+  async getDashboard(organizationId: string, startDateStr?: string, endDateStr?: string) {
+    const org = await this.getProfile(organizationId);
+    const orgProfileId = org.id;
+    
+    // Experts count
+    const allExperts = await this.databaseService.db
+      .select({ count: sql<number>`count(*)` })
+      .from(expertOrganizations)
+      .where(eq(expertOrganizations.organizationId, orgProfileId));
+    const totalExpertsCount = Number(allExperts[0]?.count || 0);
+    
+    // Active experts count
+    const liveExperts = await this.databaseService.db
+      .select({ count: sql<number>`count(*)` })
+      .from(expertOrganizations)
+      .innerJoin(expertProfile, eq(expertOrganizations.expertId, expertProfile.userId))
+      .where(and(eq(expertOrganizations.organizationId, orgProfileId), eq(expertProfile.verificationStatus, 'LIVE')));
+    const activeExpertsCount = Number(liveExperts[0]?.count || 0);
+    
+    // Pending join requests
+    const pendingJoin = await this.databaseService.db
+      .select({ count: sql<number>`count(*)` })
+      .from(expertOrganizations)
+      .where(and(eq(expertOrganizations.organizationId, orgProfileId), eq(expertOrganizations.status, 'PENDING')));
+    const pendingJoinRequestsCount = Number(pendingJoin[0]?.count || 0);
+    
+    // Bookings stats for this organizationId
+    const rawBookings = await this.databaseService.findOrganizationBookings(organizationId);
+    
+    const seenIds = new Set<string>();
+    const allBookings = [];
+    for (const b of rawBookings) {
+      if (b.booking && b.booking.id && !seenIds.has(b.booking.id)) {
+        seenIds.add(b.booking.id);
+        allBookings.push(b);
+      }
+    }
+
+    // Filter by date range if provided
+    let statsBookings = allBookings;
+    if (startDateStr || endDateStr) {
+      const start = startDateStr ? new Date(startDateStr) : null;
+      const end = endDateStr ? new Date(endDateStr) : null;
+      if (start) start.setHours(0, 0, 0, 0);
+      if (end) end.setHours(23, 59, 59, 999);
+
+      statsBookings = allBookings.filter((b: any) => {
+        const bDate = new Date(b.booking.scheduledDate);
+        if (start && bDate < start) return false;
+        if (end && bDate > end) return false;
+        return true;
+      });
+    }
+    
+    const totalBookingsCount = statsBookings.length;
+    const pendingBookingsCount = statsBookings.filter((b: any) => b.booking.status === 'pending').length;
+    const confirmedBookingsCount = statsBookings.filter((b: any) => b.booking.status === 'confirmed').length;
+    
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    
+    const todayBookingsCount = statsBookings.filter((b: any) => {
+      const date = new Date(b.booking.scheduledDate);
+      return date >= startOfToday && date < endOfToday;
+    }).length;
+    
+    // Revenue in the selected range (or current month if no range)
+    const rangeRevenueSum = statsBookings
+      .filter((b: any) => {
+        if (startDateStr || endDateStr) {
+          return b.booking.status === 'confirmed' || b.booking.status === 'completed';
+        } else {
+          const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+          const date = new Date(b.booking.scheduledDate);
+          return date >= startOfMonth && (b.booking.status === 'confirmed' || b.booking.status === 'completed');
+        }
+      })
+      .reduce((sum: number, b: any) => sum + Number(b.booking.amount || 0), 0);
+      
+    // Disputes count
+    const disputesCount = statsBookings.filter((b: any) => b.booking.status === 'disputed').length;
+    
+    // Recent bookings/activity
+    const recentActivity = statsBookings.slice(0, 5).map((b: any) => {
+      return {
+        type: 'booking',
+        message: `${b.client?.name || 'A customer'} booked a session with ${b.expert?.name || 'an expert'}`,
+        timestamp: b.booking.createdAt,
+      };
+    });
+    
     return {
-      totalExperts: 10,
-      todayBookings: 5,
-      monthlyRevenue: 50000,
-      pendingSessions: 3,
-      totalBookings: 45,
-      activeExperts: 8,
-      pendingJoinRequests: 2,
-      unreadNotifications: 7,
-      recentActivity: [
-        {
-          type: 'booking',
-          message: 'New booking with Dr. Sarah Johnson',
-          timestamp: new Date(Date.now() - 30 * 60 * 1000),
-        },
-        {
-          type: 'expert',
-          message: 'Dr. Alice Brown requested to join',
-          timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-        },
-      ],
+      totalExperts: totalExpertsCount,
+      activeExperts: activeExpertsCount,
+      pendingJoinRequests: pendingJoinRequestsCount,
+      totalBookings: totalBookingsCount,
+      pendingSessions: pendingBookingsCount,
+      confirmedBookings: confirmedBookingsCount,
+      todayBookings: todayBookingsCount,
+      monthlyRevenue: rangeRevenueSum,
+      disputes: disputesCount,
+      unreadNotifications: 0,
+      recentActivity,
     };
   }
 
@@ -1253,7 +1603,13 @@ const organizationProfileId = orgProfile[0].id;
   }
 
   async updateRefundStatus(refundId: string, status: string, rejectionReason?: string) {
-    return this.databaseService.updateRefundStatus(refundId, status, rejectionReason);
+    const updated = await this.databaseService.updateRefundStatus(refundId, status, rejectionReason);
+    if (status === 'approved' && updated) {
+      sendInvoiceEmailHelper(this.databaseService, this.mailService, updated.bookingId, 'refund').catch(err => {
+        console.error('Failed to send refund credit note email:', err);
+      });
+    }
+    return updated;
   }
 
   // Edit service request related methods
@@ -1297,7 +1653,13 @@ const organizationProfileId = orgProfile[0].id;
   }
 
   async updateEditServiceStatus(requestId: string, status: string, rejectionReason?: string) {
-    return this.databaseService.updateEditServiceStatus(requestId, status, rejectionReason);
+    const updated = await this.databaseService.updateEditServiceStatus(requestId, status, rejectionReason);
+    if (status === 'approved' && updated) {
+      sendInvoiceEmailHelper(this.databaseService, this.mailService, updated.bookingId, 'edit_service').catch(err => {
+        console.error('Failed to send updated service invoice email:', err);
+      });
+    }
+    return updated;
   }
 
   private timeToMinutes(timeStr: string): number {
@@ -1425,4 +1787,227 @@ const organizationProfileId = orgProfile[0].id;
       vertical2: getSection('vertical2', 'products', 'Products'),
     };
   }
+
+  async getActionCentreRequests(organizationId: string) {
+    // 1. Get refund requests
+    const refundData = await this.databaseService.getRefundRequests(organizationId);
+
+    // 2. Get edit service requests
+    const editData = await this.databaseService.getEditServiceRequests(organizationId);
+
+    // 3. Get disputed bookings
+    const disputedBookings = await this.databaseService.findOrganizationBookings(organizationId, 'disputed');
+
+    // Consolidated list of requests
+    const consolidatedRequests = [];
+
+    // Add refund requests
+    for (const item of refundData) {
+      consolidatedRequests.push({
+        id: item.refund.id,
+        type: 'refund',
+        customerName: item.client?.name || 'Unknown',
+        customerEmail: item.client?.email || 'Unknown',
+        serviceName: item.booking?.service || 'Unknown Service',
+        amount: Number(item.refund.amount) || 0,
+        reason: item.refund.reason,
+        requestedOn: item.refund.requestedAt,
+        status: item.refund.status, // pending, approved, rejected, processing
+        bookingId: item.booking?.id,
+      });
+    }
+
+    // Add edit service requests
+    for (const item of editData) {
+      consolidatedRequests.push({
+        id: item.editRequest.id,
+        type: 'reschedule',
+        customerName: item.client?.name || 'Unknown',
+        customerEmail: item.client?.email || 'Unknown',
+        serviceName: item.booking?.service || 'Unknown Service',
+        amount: Number(item.editRequest.newAmount) || 0,
+        reason: item.editRequest.reason,
+        requestedOn: item.editRequest.requestedAt,
+        status: item.editRequest.status, // pending, approved, rejected
+        bookingId: item.booking?.id,
+      });
+    }
+
+    // Add disputed bookings (as disputes)
+    for (const item of disputedBookings) {
+      consolidatedRequests.push({
+        id: item.booking.id, // using booking ID as identifier
+        type: 'dispute',
+        customerName: item.client?.name || 'Unknown',
+        customerEmail: item.client?.email || 'Unknown',
+        serviceName: item.booking.service || 'Unknown Service',
+        amount: Number(item.booking.amount) || 0,
+        reason: item.booking.notes || 'Disputed session',
+        requestedOn: item.booking.createdAt,
+        status: 'under review', // for disputes
+        bookingId: item.booking.id,
+      });
+    }
+
+    // Sort by requestedOn desc
+    consolidatedRequests.sort((a, b) => new Date(b.requestedOn).getTime() - new Date(a.requestedOn).getTime());
+
+    // Generate counts
+    const totalRequests = consolidatedRequests.length;
+    const pendingRequests = consolidatedRequests.filter(r => r.status === 'pending' || r.status === 'pending review').length;
+    const rescheduleRequests = consolidatedRequests.filter(r => r.type === 'reschedule').length;
+    const refundRequestsCount = consolidatedRequests.filter(r => r.type === 'refund').length;
+    const disputesCount = consolidatedRequests.filter(r => r.type === 'dispute').length;
+    const overdueCount = consolidatedRequests.filter(r => r.status === 'overdue').length;
+
+    return {
+      requests: consolidatedRequests,
+      metrics: {
+        totalRequests,
+        pendingRequests,
+        rescheduleRequests,
+        refundRequests: refundRequestsCount,
+        disputes: disputesCount,
+        overdue: overdueCount,
+      }
+    };
+  }
+
+  async getRequestDetails(organizationId: string, requestId: string, requestType: string) {
+    if (requestType === 'refund') {
+      const allRefunds = await this.databaseService.getRefundRequests(organizationId);
+      const refundItem = allRefunds.find((r: any) => r.refund.id === requestId);
+      if (!refundItem) throw new BadRequestException('Request not found');
+
+      // Fetch request timeline/logs
+      const timelineLogs = await this.databaseService.getRequestLogsByRequestId(requestId);
+
+      return {
+        id: refundItem.refund.id,
+        type: 'refund',
+        status: refundItem.refund.status,
+        serviceNature: {
+          serviceName: refundItem.booking?.service || 'Health Consultation',
+          category: 'Healthcare',
+          serviceType: 'One-on-One',
+          duration: refundItem.booking?.duration || 60,
+          provider: refundItem.expert?.name || 'Dr. Michael Chen',
+          location: refundItem.booking?.consultationType === 'online' ? 'Online (Video Call)' : 'Offline',
+        },
+        requestDetails: {
+          reason: refundItem.refund.reason,
+          description: refundItem.refund.reason,
+          amountRequested: Number(refundItem.refund.amount) || 0,
+          attachments: refundItem.refund.metadata?.files || [],
+        },
+        paymentDetails: {
+          paymentMethod: refundItem.refund.paymentMethod || 'Visa •••• 4242',
+          paidOn: refundItem.booking?.acceptedAt || refundItem.booking?.createdAt,
+          amountPaid: Number(refundItem.booking?.amount) || 0,
+          refundableAmount: Number(refundItem.refund.amount) || 0,
+          transactionId: refundItem.booking?.meetingId || 'TXN-8844-7721-9988',
+        },
+        customerInfo: {
+          name: refundItem.client?.name || 'Sarah Johnson',
+          email: refundItem.client?.email || 'sarah.j@email.com',
+          phone: refundItem.client?.email ? '+1 (555) 123-4567' : '',
+          bookingId: refundItem.booking?.id,
+          bookingDate: refundItem.booking?.scheduledDate,
+          bookingTime: refundItem.booking?.scheduledDate ? new Date(refundItem.booking.scheduledDate).toLocaleTimeString() : '',
+          status: refundItem.booking?.status,
+        },
+        timeline: timelineLogs,
+      };
+    } else if (requestType === 'reschedule') {
+      const allEdits = await this.databaseService.getEditServiceRequests(organizationId);
+      const editItem = allEdits.find((e: any) => e.editRequest.id === requestId);
+      if (!editItem) throw new BadRequestException('Request not found');
+
+      const timelineLogs = await this.databaseService.getRequestLogsByRequestId(requestId);
+
+      return {
+        id: editItem.editRequest.id,
+        type: 'reschedule',
+        status: editItem.editRequest.status,
+        serviceNature: {
+          serviceName: editItem.booking?.service || 'Mental Health Session',
+          category: 'Healthcare',
+          serviceType: 'One-on-One',
+          duration: editItem.booking?.duration || 60,
+          provider: 'Dr. Sarah Williams',
+          location: editItem.booking?.consultationType === 'online' ? 'Online (Video Call)' : 'Offline',
+        },
+        requestDetails: {
+          reason: editItem.editRequest.reason,
+          description: editItem.editRequest.reason,
+          amountRequested: Number(editItem.editRequest.newAmount) || 0,
+          attachments: editItem.editRequest.metadata?.files || [],
+        },
+        paymentDetails: {
+          paymentMethod: 'Visa •••• 4242',
+          paidOn: editItem.booking?.acceptedAt || editItem.booking?.createdAt,
+          amountPaid: Number(editItem.booking?.amount) || 0,
+          refundableAmount: Number(editItem.editRequest.newAmount) || 0,
+          transactionId: editItem.booking?.meetingId || 'TXN-8844-7721-9988',
+        },
+        customerInfo: {
+          name: editItem.client?.name || 'Robert Davis',
+          email: editItem.client?.email || 'robert.d@email.com',
+          phone: '',
+          bookingId: editItem.booking?.id,
+          bookingDate: editItem.booking?.scheduledDate,
+          bookingTime: editItem.booking?.scheduledDate ? new Date(editItem.booking.scheduledDate).toLocaleTimeString() : '',
+          status: editItem.booking?.status,
+        },
+        timeline: timelineLogs,
+      };
+    } else {
+      // Disputed bookings details
+      const rawBookings = await this.databaseService.findOrganizationBookings(organizationId);
+      const disputedItem = rawBookings.find((b: any) => b.booking.id === requestId);
+      if (!disputedItem) throw new BadRequestException('Request not found');
+
+      return {
+        id: disputedItem.booking.id,
+        type: 'dispute',
+        status: 'under review',
+        serviceNature: {
+          serviceName: disputedItem.booking.service || 'Therapy Session',
+          category: 'Healthcare',
+          serviceType: 'One-on-One',
+          duration: disputedItem.booking.duration || 60,
+          provider: disputedItem.expert?.name || 'Dr. Sarah Williams',
+          location: disputedItem.booking.consultationType === 'online' ? 'Online (Video Call)' : 'Offline',
+        },
+        requestDetails: {
+          reason: disputedItem.booking.notes || 'Dispute raised for this session',
+          description: disputedItem.booking.notes || 'Charged but provider no-show',
+          amountRequested: Number(disputedItem.booking.amount) || 0,
+          attachments: [],
+        },
+        paymentDetails: {
+          paymentMethod: 'Visa •••• 4242',
+          paidOn: disputedItem.booking.acceptedAt || disputedItem.booking.createdAt,
+          amountPaid: Number(disputedItem.booking.amount) || 0,
+          refundableAmount: Number(disputedItem.booking.amount) || 0,
+          transactionId: disputedItem.booking.meetingId || 'TXN-8844-7721-9988',
+        },
+        customerInfo: {
+          name: disputedItem.client?.name || 'Michael Kim',
+          email: disputedItem.client?.email || 'michael.k@email.com',
+          phone: '',
+          bookingId: disputedItem.booking.id,
+          bookingDate: disputedItem.booking.scheduledDate,
+          bookingTime: disputedItem.booking.scheduledDate ? new Date(disputedItem.booking.scheduledDate).toLocaleTimeString() : '',
+          status: disputedItem.booking.status,
+        },
+        timeline: [],
+      };
+    }
+  }
+
+  async getOrganizationRequestLogs(organizationId: string) {
+    return await this.databaseService.getOrganizationRequestLogs(organizationId);
+  }
 }
+
