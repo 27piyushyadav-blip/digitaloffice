@@ -1,0 +1,211 @@
+name: Backend CI-CD
+
+on:
+  push:
+    branches:
+      - main
+      - chat
+
+permissions:
+  contents: write
+  security-events: write
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/dg-backend
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: GitLeaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: ${{ github.event.repository.name }}
+          path: .
+          format: HTML
+
+      - name: Upload Dependency Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: reports/
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: security-scan
+
+    outputs:
+      image_tag: ${{ steps.vars.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate Tag
+        id: vars
+        run: |
+          TAG=v0.0.${GITHUB_RUN_NUMBER}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.tag }}
+
+# sca scan using trivy
+      - name: Scan Image with Trivy
+        id: trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        continue-on-error: true
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.tag }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Upload Trivy Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+
+      - name: Fail if vulnerabilities found
+        if: steps.trivy.outcome == 'failure'
+        run: exit 1
+      
+
+      - name: Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:latest
+
+  update-gitops:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Checkout GitOps Repo
+        uses: actions/checkout@v4
+        with:
+          repository: 27piyushyadav-blip/menifest999
+          token: ${{ secrets.K8S_REPO_TOKEN }}
+          path: menifest999
+
+
+      - name: Update Deployment Image
+        run: |
+          cd menifest999/client
+
+          sed -i "s|image: .*|image: ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}|g" backend_deployment.yaml
+
+      - name: Commit and Push Changes
+        run: |
+          cd menifest999
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add .
+
+          git commit -m "Update image ${{ needs.build-and-push.outputs.image_tag }}" || exit 0
+
+          git push origin main
+# slack notification for success and failure of pipeline
+  slack-notification:
+    name: Slack Notification
+    runs-on: ubuntu-latest
+    if: always()
+
+    needs:
+      - security-scan
+      - build-and-push
+      - update-gitops
+
+    steps:
+      - name: Send Success Notification
+        if: |
+          needs.security-scan.result == 'success' &&
+          needs.build-and-push.result == 'success' &&
+          needs.update-gitops.result == 'success'
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: good
+          SLACK_TITLE: "✅ CI/CD Pipeline Successful"
+          SLACK_MESSAGE: |
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Image: ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
+            Workflow: ${{ github.workflow }}
+            Triggered By: ${{ github.actor }}
+
+      - name: Send Failure Notification
+        if: |
+          needs.security-scan.result == 'failure' ||
+          needs.build-and-push.result == 'failure' ||
+          needs.update-gitops.result == 'failure'
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: danger
+          SLACK_TITLE: "❌ CI/CD Pipeline Failed"
+          SLACK_MESSAGE: |
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Workflow: ${{ github.workflow }}
+            Failed Job:
+              Security Scan: ${{ needs.security-scan.result }}
+              Build: ${{ needs.build-and-push.result }}
+              GitOps: ${{ needs.update-gitops.result }}
+
+            Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+
+  summary:
+    runs-on: ubuntu-latest
+    if: always()
+
+    needs:
+      - security-scan
+      - build-and-push
+      - update-gitops
+
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo "Pipeline completed successfully."

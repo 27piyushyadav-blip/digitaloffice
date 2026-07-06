@@ -80,7 +80,8 @@ export class ChatController {
         const allowedTypes = [
           'image/jpeg', 'image/png', 'image/gif', 'image/webp',
           'video/mp4', 'video/quicktime', 'video/x-msvideo',
-          'audio/mpeg', 'audio/wav', 'audio/webm', 'audio/ogg'
+          'audio/mpeg', 'audio/wav', 'audio/webm', 'audio/ogg',
+          'application/pdf'
         ];
         if (!allowedTypes.includes(file.mimetype)) {
           return cb(new BadRequestException('Invalid file type'), false);
