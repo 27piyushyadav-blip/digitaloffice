@@ -73,6 +73,7 @@ export async function sendInvoiceEmailHelper(
       orgAddress: organization?.addressLine1 || organization?.location || undefined,
       orgPhone: organization?.phone || organization?.phoneNumber || undefined,
       orgEmail: organization?.officialEmail || organization?.email || undefined,
+      invoiceCustomization: (organization as any)?.invoiceCustomization || undefined,
       services: services.map(s => ({
         name: s.name,
         price: Number(s.price),

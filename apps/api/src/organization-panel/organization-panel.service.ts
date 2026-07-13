@@ -170,6 +170,7 @@ export class OrganizationPanelService {
       products: profileData.products !== undefined ? profileData.products : (existingProfile as any).products,
       features: profileData.features !== undefined ? profileData.features : (existingProfile as any).features,
       showCategories: profileData.showCategories !== undefined ? profileData.showCategories : (existingProfile as any).showCategories,
+      invoiceCustomization: profileData.invoiceCustomization !== undefined ? profileData.invoiceCustomization : (existingProfile as any).invoiceCustomization,
     });
 
     return {
@@ -202,6 +203,17 @@ export class OrganizationPanelService {
       logoUrl: fileUrl,
       organizationId,
       status: 'PENDING_APPROVAL',
+    };
+  }
+
+  async uploadInvoiceLogo(organizationId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fileUrl = `${baseUrl}/uploads/organization-logos/${file.filename}`;
+    
+    return {
+      message: 'Invoice logo uploaded successfully',
+      logoUrl: fileUrl,
     };
   }
 

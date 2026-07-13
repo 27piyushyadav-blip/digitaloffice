@@ -155,6 +155,13 @@ export class MailService {
       discount?: number;
       amount: number;
       type: string; // 'payment' | 'edit_service' | 'refund'
+      invoiceCustomization?: {
+        logoUrl?: string;
+        brandName?: string;
+        color?: string;
+        backgroundColor?: string;
+        textSize?: string;
+      };
     }
   ) {
     const {
@@ -170,8 +177,33 @@ export class MailService {
       tax,
       discount,
       amount,
-      type
+      type,
+      invoiceCustomization
     } = invoiceDetails;
+
+    const accentColor = invoiceCustomization?.color || (type === 'refund' ? '#10b981' : '#4f46e5');
+    const customBrandName = invoiceCustomization?.brandName || orgName;
+    const cardBgColor = invoiceCustomization?.backgroundColor || '#ffffff';
+
+    // Sizing customization
+    let baseFontSize = '13px';
+    let headerFontSize = '26px';
+    let titleFontSize = '24px';
+    let paddingStyle = '40px 32px';
+    let rowPadding = '12px 0';
+    if (invoiceCustomization?.textSize === 'small') {
+      baseFontSize = '11px';
+      headerFontSize = '22px';
+      titleFontSize = '20px';
+      paddingStyle = '24px 20px';
+      rowPadding = '8px 0';
+    } else if (invoiceCustomization?.textSize === 'large') {
+      baseFontSize = '15px';
+      headerFontSize = '30px';
+      titleFontSize = '28px';
+      paddingStyle = '48px 40px';
+      rowPadding = '16px 0';
+    }
 
     const emailSubject = type === 'refund' 
       ? `Credit Note / Refund Receipt - ${invoiceNumber}` 
@@ -180,149 +212,192 @@ export class MailService {
       : `Payment Invoice Receipt - ${invoiceNumber}`;
 
     await this.transporter.sendMail({
-      from: `"${orgName} Payments" <${this.configService.get<string>("GMAIL_USER")}>`,
+      from: `"${customBrandName} Payments" <${this.configService.get<string>("GMAIL_USER")}>`,
       to: email,
       subject: emailSubject,
       html: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 40px 10px; color: #1e293b; line-height: 1.5;">
-          <div style="max-width: 700px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 700px; margin: 0 auto; background-color: ${cardBgColor}; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03); border-collapse: collapse;">
             <!-- Top banner accent -->
-            <div style="background-color: ${type === 'refund' ? '#10b981' : '#4f46e5'}; height: 8px;"></div>
+            <tr>
+              <td colspan="2" style="background-color: ${accentColor}; height: 8px; line-height: 8px; font-size: 8px;">&nbsp;</td>
+            </tr>
             
-            <!-- Invoice Content -->
-            <div style="padding: 40px 32px;">
-              
-              <!-- Top Section -->
-              <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-                <tr>
-                  <td style="vertical-align: top;">
-                    <h1 style="margin: 0; font-size: 26px; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: -0.025em;">${orgName}</h1>
-                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #64748b;">Powered by Velvetbook</p>
-                  </td>
-                  <td style="vertical-align: top; text-align: right;">
-                    <h2 style="margin: 0; font-size: 24px; font-weight: 800; color: ${type === 'refund' ? '#10b981' : '#4f46e5'}; text-transform: uppercase; letter-spacing: 0.05em;">
-                      ${type === 'refund' ? 'CREDIT NOTE' : 'INVOICE'}
-                    </h2>
-                    <p style="margin: 6px 0 0 0; font-size: 13px; color: #475569;">
-                      <strong>Invoice #</strong> ${invoiceNumber}
-                    </p>
-                    <p style="margin: 2px 0 0 0; font-size: 13px; color: #64748b;">
-                      <strong>Date:</strong> ${date}
-                    </p>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Billing Info (3 columns layout) -->
-              <table style="width: 100%; border-collapse: collapse; margin-bottom: 35px; background-color: #fafafa; border-radius: 12px; border: 1px solid #f1f1f1;">
-                <tr>
-                  <!-- Bill From -->
-                  <td style="width: 33.33%; padding: 20px; vertical-align: top; border-right: 1px solid #f1f1f1;">
-                    <p style="margin: 0 0 8px 0; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">BILL FROM</p>
-                    <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: 700; color: #1e293b;">${orgName}</p>
-                    ${orgAddress ? `<p style="margin: 0 0 4px 0; font-size: 12px; color: #64748b; line-height: 1.4;">${orgAddress}</p>` : ''}
-                    ${orgPhone ? `<p style="margin: 0 0 4px 0; font-size: 12px; color: #64748b;">📞 ${orgPhone}</p>` : ''}
-                    ${orgEmail ? `<p style="margin: 0; font-size: 12px; color: #64748b;">✉️ ${orgEmail}</p>` : ''}
-                  </td>
-                  <!-- Bill To -->
-                  <td style="width: 33.33%; padding: 20px; vertical-align: top; border-right: 1px solid #f1f1f1;">
-                    <p style="margin: 0 0 8px 0; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">BILL TO</p>
-                    <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: 700; color: #1e293b;">${customerName}</p>
-                    ${orgPhone ? `<p style="margin: 0 0 4px 0; font-size: 12px; color: #64748b;">📞 Customer phone</p>` : ''}
-                    ${email ? `<p style="margin: 0; font-size: 12px; color: #64748b;">✉️ ${email}</p>` : ''}
-                  </td>
-                  <!-- Invoice For -->
-                  <td style="width: 33.33%; padding: 20px; vertical-align: top;">
-                    <p style="margin: 0 0 8px 0; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">INVOICE FOR</p>
-                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #475569;">
-                      <strong>Booking ID:</strong> <span style="font-family: monospace; font-size: 11px;">#${bookingId.slice(0, 8).toUpperCase()}</span>
-                    </p>
-                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #475569;">
-                      <strong>Type:</strong> ${type === 'refund' ? 'Refund / Credit' : type === 'edit_service' ? 'Service Change' : 'New Purchase'}
-                    </p>
-                    <p style="margin: 0; font-size: 12px; color: #475569;">
-                      <strong>Status:</strong> <span style="display: inline-block; padding: 2px 8px; background-color: ${type === 'refund' ? '#d1fae5' : '#e0e7ff'}; color: ${type === 'refund' ? '#065f46' : '#3730a3'}; font-size: 10px; font-weight: 700; border-radius: 9999px;">${type === 'refund' ? 'REFUNDED' : 'PAID'}</span>
-                    </p>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Items Table -->
-              <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-                <thead>
-                  <tr style="border-bottom: 2px solid #e2e8f0; text-align: left; font-size: 11px; font-weight: 700; color: #475569;">
-                    <th style="padding-bottom: 10px; text-align: left; width: 50px;">#</th>
-                    <th style="padding-bottom: 10px; text-align: left;">DESCRIPTION</th>
-                    <th style="padding-bottom: 10px; text-align: right; width: 60px;">QTY</th>
-                    <th style="padding-bottom: 10px; text-align: right; width: 100px;">UNIT PRICE</th>
-                    <th style="padding-bottom: 10px; text-align: right; width: 80px;">TAX (%)</th>
-                    <th style="padding-bottom: 10px; text-align: right; width: 110px;">AMOUNT</th>
+            <!-- Main Content padding wrapper -->
+            <tr>
+              <td colspan="2" style="padding: ${paddingStyle};">
+                
+                <!-- Header grid -->
+                <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; margin-bottom: 30px;">
+                  <tr>
+                    <!-- Header Left: Logo and Provider Info -->
+                    <td width="55%" style="vertical-align: top; padding-right: 20px;">
+                      ${invoiceCustomization?.logoUrl ? `<img src="${invoiceCustomization.logoUrl}" alt="${customBrandName}" style="max-height: 60px; display: block; margin-bottom: 12px; border-radius: 8px;" />` : ''}
+                      <h1 style="margin: 0 0 12px 0; font-size: ${headerFontSize}; font-weight: 800; color: ${accentColor}; text-transform: uppercase; letter-spacing: -0.025em; line-height: 1.2;">${customBrandName}</h1>
+                      <div style="font-size: ${baseFontSize}; color: #64748b; line-height: 1.6;">
+                        ${orgAddress ? `<p style="margin: 0 0 4px 0;">📍 ${orgAddress}</p>` : ''}
+                        ${orgPhone ? `<p style="margin: 0 0 4px 0;">📞 ${orgPhone}</p>` : ''}
+                        ${orgEmail ? `<p style="margin: 0 0 4px 0;">✉️ ${orgEmail}</p>` : ''}
+                      </div>
+                    </td>
+                    
+                    <!-- Header Right: Invoice Details & BILL TO -->
+                    <td width="45%" style="vertical-align: top; text-align: right;">
+                      <h2 style="margin: 0 0 15px 0; font-size: 32px; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.05em; line-height: 1;">
+                        ${type === 'refund' ? 'CREDIT' : 'INVOICE'}
+                      </h2>
+                      
+                      <!-- Meta Details table -->
+                      <table cellpadding="0" cellspacing="0" border="0" align="right" style="border-collapse: collapse; margin-bottom: 20px; font-size: ${baseFontSize}; color: #475569; text-align: right;">
+                        <tr>
+                          <td style="padding: 2px 10px 2px 0; font-weight: bold; color: #64748b;">Invoice No.</td>
+                          <td style="padding: 2px 0 2px 10px; color: #0f172a; font-weight: bold;">: ${invoiceNumber}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 2px 10px 2px 0; font-weight: bold; color: #64748b;">Invoice Date</td>
+                          <td style="padding: 2px 0 2px 10px; color: #0f172a;">: ${date}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 2px 10px 2px 0; font-weight: bold; color: #64748b;">Status</td>
+                          <td style="padding: 2px 0 2px 10px; color: ${type === 'refund' ? '#059669' : '#4f46e5'}; font-weight: bold;">: ${type === 'refund' ? 'REFUNDED' : 'PAID'}</td>
+                        </tr>
+                      </table>
+                      <div style="clear: both;"></div>
+                      
+                      <!-- BILL TO Box matching reference design card -->
+                      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; background-color: #fafafa; border: 1px solid #e2e8f0; border-radius: 12px; text-align: left;">
+                        <tr>
+                          <td style="padding: 16px;">
+                            <p style="margin: 0 0 6px 0; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">BILL TO</p>
+                            <p style="margin: 0 0 4px 0; font-size: ${baseFontSize}; font-weight: 700; color: #1e293b;">${customerName}</p>
+                            ${email ? `<p style="margin: 0 0 2px 0; font-size: ${baseFontSize}; color: #64748b;">${email}</p>` : ''}
+                            <p style="margin: 0; font-size: ${baseFontSize}; color: #64748b;"><strong>Booking ID:</strong> #${bookingId.slice(0, 8).toUpperCase()}</p>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  ${services.map((svc, idx) => `
-                    <tr style="border-bottom: 1px solid #f1f5f9; font-size: 13px; color: #334155;">
-                      <td style="padding: 12px 0; text-align: left;">${idx + 1}</td>
-                      <td style="padding: 12px 0; text-align: left; font-weight: 500; color: #0f172a;">${svc.name}</td>
-                      <td style="padding: 12px 0; text-align: right;">${svc.quantity}</td>
-                      <td style="padding: 12px 0; text-align: right;">${Number(svc.price).toFixed(2)}</td>
-                      <td style="padding: 12px 0; text-align: right;">18%</td>
-                      <td style="padding: 12px 0; text-align: right; font-weight: 600; color: #0f172a;">
-                        ${(Number(svc.price) * svc.quantity).toFixed(2)}
-                      </td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
+                </table>
 
-              <!-- Bottom Notes & Summary columns -->
-              <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-                <tr>
-                  <!-- Notes -->
-                  <td style="width: 55%; vertical-align: top; padding-right: 40px;">
-                    <p style="margin: 0 0 8px 0; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">NOTES</p>
-                    <p style="margin: 0; font-size: 13px; color: #64748b; line-height: 1.5;">
-                      Thank you for your business! This is an automatically generated receipt for your records. If you have any questions or concerns regarding this transaction, please feel free to reach out to us.
-                    </p>
-                  </td>
-                  <!-- Summary -->
-                  <td style="width: 45%; vertical-align: top;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #475569;">
-                      <tr>
-                        <td style="padding: 6px 0; text-align: left;">Subtotal</td>
-                        <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #1e293b;">${Number(subtotal).toFixed(2)}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding: 6px 0; text-align: left;">Tax (GST 18%)</td>
-                        <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #1e293b;">${Number(tax).toFixed(2)}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding: 6px 0; text-align: left;">Discount</td>
-                        <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #10b981;">-${Number(discount || 0).toFixed(2)}</td>
-                      </tr>
-                      <tr style="border-top: 1px solid #e2e8f0;">
-                        <td style="padding: 12px 0 0 0; text-align: left; font-size: 15px; font-weight: 800; color: #0f172a;">TOTAL</td>
-                        <td style="padding: 12px 0 0 0; text-align: right; font-size: 18px; font-weight: 800; color: ${type === 'refund' ? '#10b981' : '#4f46e5'};">
-                          ${Number(amount).toFixed(2)}
+                <!-- Items Table -->
+                <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; margin-bottom: 30px;">
+                  <thead>
+                    <tr style="background-color: ${accentColor}; color: #ffffff;">
+                      <th style="padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; border-top-left-radius: 8px; border-bottom-left-radius: 8px; width: 40px;">#</th>
+                      <th style="padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase;">DESCRIPTION</th>
+                      <th style="padding: 10px 12px; text-align: right; font-size: 11px; font-weight: 700; text-transform: uppercase; width: 50px;">QTY</th>
+                      <th style="padding: 10px 12px; text-align: right; font-size: 11px; font-weight: 700; text-transform: uppercase; width: 90px;">UNIT PRICE</th>
+                      <th style="padding: 10px 12px; text-align: right; font-size: 11px; font-weight: 700; text-transform: uppercase; width: 60px;">TAX (%)</th>
+                      <th style="padding: 10px 12px; text-align: right; font-size: 11px; font-weight: 700; text-transform: uppercase; border-top-right-radius: 8px; border-bottom-right-radius: 8px; width: 100px;">AMOUNT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${services.map((svc, idx) => `
+                      <tr style="border-bottom: 1px solid #f1f5f9; font-size: ${baseFontSize}; color: #334155;">
+                        <td style="padding: ${rowPadding} 12px; text-align: left; color: #94a3b8;">${String(idx + 1).padStart(2, '0')}</td>
+                        <td style="padding: ${rowPadding} 12px; text-align: left; font-weight: 600; color: #0f172a;">${svc.name}</td>
+                        <td style="padding: ${rowPadding} 12px; text-align: right;">${svc.quantity}</td>
+                        <td style="padding: ${rowPadding} 12px; text-align: right;">$${Number(svc.price).toFixed(2)}</td>
+                        <td style="padding: ${rowPadding} 12px; text-align: right;">18%</td>
+                        <td style="padding: ${rowPadding} 12px; text-align: right; font-weight: 700; color: #0f172a;">
+                          $${(Number(svc.price) * svc.quantity).toFixed(2)}
                         </td>
                       </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
+                    `).join('')}
+                  </tbody>
+                </table>
 
-              <!-- Bottom Line contact details -->
-              <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #f1f5f9; text-align: center; font-size: 12px; color: #94a3b8;">
-                <p style="margin: 0;">
-                  ${orgPhone ? `📞 ${orgPhone}  •  ` : ''}
-                  ${orgEmail ? `✉️ ${orgEmail}  •  ` : ''}
-                  ${orgName}
-                </p>
-                <p style="margin: 4px 0 0 0;">This transaction is securely processed in accordance with our terms of service.</p>
-              </div>
+                <!-- Bottom Notes + Summary Columns -->
+                <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; margin-top: 10px;">
+                  <tr>
+                    <!-- Bottom Left: Payment Information & Thank you -->
+                    <td width="55%" style="vertical-align: top; padding-right: 40px;">
+                      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; background-color: #fafafa; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 15px;">
+                        <tr>
+                          <td style="padding: 16px; font-size: ${baseFontSize}; color: #475569;">
+                            <p style="margin: 0 0 8px 0; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">PAYMENT INFORMATION</p>
+                            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: ${baseFontSize}; text-align: left;">
+                              <tr>
+                                <td style="padding: 2px 0; color: #64748b;">Account Name</td>
+                                <td style="padding: 2px 0; font-weight: bold; color: #1e293b;">: ${customBrandName} Pty Ltd</td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 2px 0; color: #64748b;">BSB / Bank</td>
+                                <td style="padding: 2px 0; font-weight: bold; color: #1e293b;">: 123-456 (Wellness Bank)</td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 2px 0; color: #64748b;">Account No.</td>
+                                <td style="padding: 2px 0; font-weight: bold; color: #1e293b;">: 9876 5432 1098</td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 2px 0; color: #64748b;">Reference</td>
+                                <td style="padding: 2px 0; font-weight: bold; color: #1e293b;">: INV-${invoiceNumber.slice(-8)}</td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                      <p style="margin: 0; font-family: 'Georgia', serif; font-style: italic; font-size: 16px; color: ${accentColor}; text-align: left;">
+                        Thank You! ❤️
+                      </p>
+                      <p style="margin: 4px 0 0 0; font-size: 11px; color: #94a3b8;">
+                        We appreciate your trust in our services. We look forward to serving you again.
+                      </p>
+                    </td>
+                    
+                    <!-- Bottom Right: Summary Calculations -->
+                    <td width="45%" style="vertical-align: top;">
+                      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: ${baseFontSize}; color: #475569;">
+                        <tr>
+                          <td style="padding: 6px 0; text-align: left;">Subtotal</td>
+                          <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #1e293b;">$${Number(subtotal).toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 6px 0; text-align: left;">Tax (GST 18%)</td>
+                          <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #1e293b;">$${Number(tax).toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 6px 0; text-align: left;">Discount</td>
+                          <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #059669;">-$${Number(discount || 0).toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                          <td colspan="2" style="padding: 10px 0 0 0;">
+                            <!-- Highlighted Total Box -->
+                            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; background-color: ${accentColor}; border-radius: 8px; color: #ffffff;">
+                              <tr>
+                                <td style="padding: 12px; font-weight: bold; font-size: 13px;">TOTAL AMOUNT</td>
+                                <td style="padding: 12px; font-weight: 800; font-size: 18px; text-align: right;">$${Number(amount).toFixed(2)}</td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
 
-            </div>
-          </div>
+                <!-- Bottom Line contact details & Core Badges -->
+                <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #f1f5f9; text-align: center; font-size: 11px; color: #94a3b8;">
+                  
+                  <!-- Badges block -->
+                  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 11px; font-weight: bold; color: #64748b;">
+                    <tr>
+                      <td style="width: 25%;">🌿 Natural & Safe</td>
+                      <td style="width: 25%;">✨ Hygienic & Clean</td>
+                      <td style="width: 25%;">⏰ On-time Service</td>
+                      <td style="width: 25%;">❤️ Customer Care</td>
+                    </tr>
+                  </table>
+                  
+                  <p style="margin: 0;">
+                    This transaction is securely processed in accordance with our terms of service.<br />
+                    Powered by <strong>Velvetbook</strong>
+                  </p>
+                </div>
+
+              </td>
+            </tr>
+          </table>
         </div>
       `,
     });

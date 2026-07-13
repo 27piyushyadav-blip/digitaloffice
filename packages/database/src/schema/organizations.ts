@@ -89,6 +89,13 @@ export const organizationProfile = pgTable("organization_profile", {
   verificationStatus: text("verification_status").default("ONBOARDING"), // ONBOARDING, PENDING, VERIFIED, REJECTED
   rejectionReason: text("rejection_reason"),
   showCategories: boolean("show_categories").default(false),
+  invoiceCustomization: json("invoice_customization").$type<{
+    logoUrl?: string;
+    brandName?: string;
+    color?: string;
+    backgroundColor?: string;
+    textSize?: string;
+  }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
 });

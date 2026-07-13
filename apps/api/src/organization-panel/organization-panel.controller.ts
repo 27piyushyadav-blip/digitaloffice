@@ -70,6 +70,37 @@ export class OrganizationPanelController {
     return this.organizationPanelService.uploadLogo(organizationId, file);
   }
 
+  @Post('/profile/invoice-logo')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/organization-logos',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `invoice_${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp|avif)$/)) {
+          return cb(new BadRequestException('Only image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB
+      },
+    }),
+  )
+  async uploadInvoiceLogo(
+    @GetCurrentUserId() organizationId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.organizationPanelService.uploadInvoiceLogo(organizationId, file);
+  }
+
   @Post('/profile/cover-image')
   @UseInterceptors(
     FileInterceptor('file', {

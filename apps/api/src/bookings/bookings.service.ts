@@ -2,12 +2,14 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { DatabaseService } from '../database/database.service';
 import { MailService } from '@repo/mail';
 import { sendInvoiceEmailHelper } from '../common/utils/invoice-email.util';
+import { PaymentsService } from '../payments/payments.service';
 
 @Injectable()
 export class BookingsService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly mailService: MailService,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   async createBooking(clientId: string, bookingData: {
@@ -203,7 +205,34 @@ export class BookingsService {
     };
   }
 
-  async payPublicBooking(bookingId: string) {
+  async createPublicPaymentIntent(bookingId: string) {
+    const booking = await this.databaseService.findBookingById(bookingId);
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    // Check if it's a voice call booking by checking notes JSON
+    let parsedNotes: any = null;
+    try {
+      if (booking.notes) {
+        parsedNotes = JSON.parse(booking.notes);
+      }
+    } catch (e) {
+      // Not a JSON
+    }
+
+    if (!parsedNotes || !parsedNotes.isVoiceCallBooking) {
+      throw new BadRequestException('This booking is not eligible for public payment');
+    }
+
+    const subtotal = Number(booking.amount);
+    const tax = Math.round(subtotal * 0.05); // Match frontend 5% tax calculations
+    const total = subtotal + tax;
+
+    return this.paymentsService.createPublicPaymentIntent(bookingId, total);
+  }
+
+  async payPublicBooking(bookingId: string, paymentIntentId?: string) {
     const booking = await this.databaseService.findBookingById(bookingId);
     if (!booking) {
       throw new NotFoundException('Booking not found');
@@ -228,6 +257,14 @@ export class BookingsService {
         message: 'Booking is already paid',
         booking,
       };
+    }
+
+    // Verify Stripe payment intent status if provided
+    if (paymentIntentId) {
+      const stripeVerify = await this.paymentsService.verifyPayment({ paymentId: paymentIntentId });
+      if (stripeVerify.status !== 'completed') {
+        throw new BadRequestException('Stripe payment has not succeeded yet');
+      }
     }
 
     // Update paymentStatus to paid, status to confirmed, acceptedAt to now
@@ -293,6 +330,7 @@ export class BookingsService {
         orgAddress: (organization as any)?.addressLine1 || (organization as any)?.location || '',
         orgPhone: (organization as any)?.phone || (organization as any)?.phoneNumber || '',
         orgEmail: (organization as any)?.officialEmail || (organization as any)?.email || '',
+        invoiceCustomization: (organization as any)?.invoiceCustomization || null,
         services,
         subtotal: Number(booking.amount),
         tax: 0,
@@ -336,6 +374,7 @@ export class BookingsService {
       tax: Number(invoice.tax),
       discount: Number(invoice.discount || 0),
       amount: Number(invoice.amount),
+      invoiceCustomization: (organization as any)?.invoiceCustomization || null,
     };
   }
 }

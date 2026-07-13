@@ -943,6 +943,7 @@ export class DatabaseService {
           state: organizationProfile.state,
           zipCode: organizationProfile.zipCode,
           logo: organizationProfile.logo,
+          invoiceCustomization: organizationProfile.invoiceCustomization,
         },
       })
       .from(bookings)

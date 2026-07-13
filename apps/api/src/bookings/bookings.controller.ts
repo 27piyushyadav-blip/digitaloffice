@@ -54,11 +54,20 @@ export class BookingsController {
   }
 
   @Public()
+  @Post('public/:bookingId/payment-intent')
+  async createPublicPaymentIntent(
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.createPublicPaymentIntent(bookingId);
+  }
+
+  @Public()
   @Post('public/:bookingId/pay')
   async payPublicBooking(
     @Param('bookingId') bookingId: string,
+    @Body() body: { paymentIntentId?: string },
   ) {
-    return this.bookingsService.payPublicBooking(bookingId);
+    return this.bookingsService.payPublicBooking(bookingId, body.paymentIntentId);
   }
 
   @Public()
@@ -68,6 +77,7 @@ export class BookingsController {
   ) {
     return this.bookingsService.getPublicBookingReceipt(bookingId);
   }
+
 
   @Get(':bookingId')
   async getBookingDetails(
