@@ -56,6 +56,8 @@ export const organizationProfile = pgTable("organization_profile", {
     ifscCode?: string;
     bsbCode?: string;
   }>(),
+  stripeConnectAccountId: text("stripe_connect_account_id"),
+  stripeConnectOnboarded: boolean("stripe_connect_onboarded").default(false),
   workingHours: text("working_hours"),
   tags: json("tags").$type<string[]>(),
   documents: json("documents").$type<Array<{

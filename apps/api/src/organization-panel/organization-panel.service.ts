@@ -2,12 +2,13 @@ import { Injectable, BadRequestException, ConflictException, NotFoundException }
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { expert, expertProfile, expertOrganizations, organisation, organizationProfile, bookings } from '@repo/database';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, or } from 'drizzle-orm';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 
 import { MailService } from '@repo/mail';
 import { sendInvoiceEmailHelper } from '../common/utils/invoice-email.util';
+import { PaymentsService } from '../payments/payments.service';
 
 // Force reload after database rebuild
 @Injectable()
@@ -16,6 +17,7 @@ export class OrganizationPanelService {
     private readonly databaseService: DatabaseService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   // Organization Profile APIs
@@ -2020,6 +2022,135 @@ const organizationProfileId = orgProfile[0].id;
 
   async getOrganizationRequestLogs(organizationId: string) {
     return await this.databaseService.getOrganizationRequestLogs(organizationId);
+  }
+
+  async getWalletSummary(organizationId: string) {
+    return this.databaseService.findOrganizationWalletSummary(organizationId);
+  }
+
+  async getTransactions(organizationId: string, page?: number, limit?: number) {
+    const pageNum = Number(page) || 1;
+    const limitNum = Number(limit) || 10;
+    return this.databaseService.findOrganizationTransactions(organizationId, pageNum, limitNum);
+  }
+
+  async getPayouts(organizationId: string, page?: number, limit?: number) {
+    const pageNum = Number(page) || 1;
+    const limitNum = Number(limit) || 10;
+    return this.databaseService.findOrganizationPayouts(organizationId, pageNum, limitNum);
+  }
+
+  async withdrawFunds(organizationId: string, amount: number) {
+    const withdrawAmount = Number(amount);
+    if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+      throw new BadRequestException('Invalid withdrawal amount');
+    }
+    try {
+      let orgProfile = await this.databaseService.db
+        .select()
+        .from(organizationProfile)
+        .where(or(
+          eq(organizationProfile.id, organizationId),
+          eq(organizationProfile.userId, organizationId)
+        ))
+        .limit(1)
+        .then((res: any[]) => res[0] || null);
+
+      if (!orgProfile) {
+        throw new BadRequestException('Organization profile not found');
+      }
+
+      if (orgProfile.stripeConnectOnboarded && orgProfile.stripeConnectAccountId) {
+        const transfer = await this.paymentsService.createStripeTransfer(
+          withdrawAmount,
+          orgProfile.stripeConnectAccountId
+        );
+
+        return await this.databaseService.createOrganizationPayout(
+          orgProfile.id,
+          withdrawAmount,
+          'completed',
+          transfer.id
+        );
+      }
+
+      return await this.databaseService.createOrganizationPayout(
+        orgProfile.id,
+        withdrawAmount,
+        'processing'
+      );
+    } catch (err: any) {
+      throw new BadRequestException(err.message);
+    }
+  }
+
+  async getStripeConnectOnboardUrl(organizationId: string, returnUrl: string, refreshUrl: string) {
+    let orgProfile = await this.databaseService.db
+      .select()
+      .from(organizationProfile)
+      .where(or(
+        eq(organizationProfile.id, organizationId),
+        eq(organizationProfile.userId, organizationId)
+      ))
+      .limit(1)
+      .then((res: any[]) => res[0] || null);
+
+    if (!orgProfile) {
+      throw new BadRequestException('Organization profile not found');
+    }
+
+    let accountId = orgProfile.stripeConnectAccountId;
+    if (!accountId) {
+      const account = await this.paymentsService.createExpressAccount(orgProfile.officialEmail || 'org@example.com');
+      accountId = account.id;
+
+      await this.databaseService.db
+        .update(organizationProfile)
+        .set({ stripeConnectAccountId: accountId })
+        .where(eq(organizationProfile.id, orgProfile.id));
+    }
+
+    const accountLink = await this.paymentsService.createAccountLink(accountId, returnUrl, refreshUrl);
+    return { url: accountLink.url };
+  }
+
+  async getStripeConnectStatus(organizationId: string) {
+    let orgProfile = await this.databaseService.db
+      .select()
+      .from(organizationProfile)
+      .where(or(
+        eq(organizationProfile.id, organizationId),
+        eq(organizationProfile.userId, organizationId)
+      ))
+      .limit(1)
+      .then((res: any[]) => res[0] || null);
+
+    if (!orgProfile) {
+      throw new BadRequestException('Organization profile not found');
+    }
+
+    if (!orgProfile.stripeConnectAccountId) {
+      return { onboarded: false, payoutsEnabled: false, detailsSubmitted: false, accountId: null };
+    }
+
+    const accountDetails = await this.paymentsService.retrieveConnectedAccount(orgProfile.stripeConnectAccountId);
+    const payoutsEnabled = !!accountDetails.payouts_enabled;
+    const detailsSubmitted = !!accountDetails.details_submitted;
+    const onboarded = payoutsEnabled && detailsSubmitted;
+
+    if (onboarded && !orgProfile.stripeConnectOnboarded) {
+      await this.databaseService.db
+        .update(organizationProfile)
+        .set({ stripeConnectOnboarded: true })
+        .where(eq(organizationProfile.id, orgProfile.id));
+    }
+
+    return {
+      onboarded,
+      payoutsEnabled,
+      detailsSubmitted,
+      accountId: orgProfile.stripeConnectAccountId,
+    };
   }
 }
 

@@ -21,6 +21,8 @@ import {
   editServiceRequests,
   requestLogs,
   invoices,
+  transactions,
+  payouts,
 } from '@repo/database';
 
 import { eq, and, desc, or, sql, isNull, inArray, getTableColumns } from 'drizzle-orm';
@@ -585,6 +587,10 @@ export class DatabaseService {
             services: parsedNotes?.services || [{ name: inserted.service, price: subtotal, quantity: 1 }],
           }
         });
+
+        if (inserted.organizationId) {
+          await this.createWalletTransaction(inserted.id);
+        }
       } catch (err) {
         console.error('Failed to auto-generate payment invoice on create:', err);
       }
@@ -978,6 +984,10 @@ export class DatabaseService {
     
     if (updated && updateData.paymentStatus === 'paid') {
       try {
+        if (updated.organizationId) {
+          await this.createWalletTransaction(updated.id);
+        }
+
         const [existing] = await this.db
           .select()
           .from(invoices)
@@ -1587,6 +1597,319 @@ export class DatabaseService {
   async findPayouts(expertId: string, page: number, limit: number) {
     // TODO: Implement actual database query
     return { payouts: [], pagination: { page, limit, total: 0, totalPages: 0 } };
+  }
+
+  async createWalletTransaction(bookingId: string) {
+    try {
+      const [booking] = await this.db
+        .select()
+        .from(bookings)
+        .where(eq(bookings.id, bookingId))
+        .limit(1);
+
+      if (!booking || !booking.organizationId) {
+        return null;
+      }
+
+      const [existingTxn] = await this.db
+        .select()
+        .from(transactions)
+        .where(and(eq(transactions.bookingId, bookingId), eq(transactions.type, 'session_payment')))
+        .limit(1);
+
+      if (existingTxn) {
+        return existingTxn;
+      }
+
+      const [orgProf] = await this.db
+        .select()
+        .from(organizationProfile)
+        .where(or(
+          eq(organizationProfile.userId, booking.organizationId),
+          eq(organizationProfile.id, booking.organizationId)
+        ))
+        .limit(1);
+
+      if (!orgProf) {
+        return null;
+      }
+
+      const amount = Number(booking.amount) || 0;
+      const commission = Math.round(amount * 0.15 * 100) / 100;
+      const netAmount = amount - commission;
+
+      const [inserted] = await this.db
+        .insert(transactions)
+        .values({
+          organizationId: orgProf.id,
+          bookingId: booking.id,
+          amount: String(amount),
+          commission: String(commission),
+          netAmount: String(netAmount),
+          status: 'completed',
+          type: 'session_payment',
+          description: `Payment for booking: ${booking.service}`,
+          createdAt: new Date(),
+          completedAt: new Date(),
+        })
+        .returning();
+
+      return inserted || null;
+    } catch (err) {
+      console.error('Failed to create wallet transaction:', err);
+      return null;
+    }
+  }
+
+  async findOrganizationWalletSummary(organizationId: string) {
+    let orgProfile = await this.db
+      .select()
+      .from(organizationProfile)
+      .where(or(
+        eq(organizationProfile.id, organizationId),
+        eq(organizationProfile.userId, organizationId)
+      ))
+      .limit(1)
+      .then((res: any[]) => res[0] || null);
+
+    if (!orgProfile) {
+      throw new Error('Organization profile not found');
+    }
+
+    const orgProfileId = orgProfile.id;
+
+    const completedTxns = await this.db
+      .select()
+      .from(transactions)
+      .where(and(
+        eq(transactions.organizationId, orgProfileId),
+        eq(transactions.status, 'completed')
+      ));
+
+    const pendingTxns = await this.db
+      .select()
+      .from(transactions)
+      .where(and(
+        eq(transactions.organizationId, orgProfileId),
+        eq(transactions.status, 'pending')
+      ));
+
+    const allPayouts = await this.db
+      .select()
+      .from(payouts)
+      .where(and(
+        eq(payouts.organizationId, orgProfileId),
+        or(eq(payouts.status, 'processing'), eq(payouts.status, 'completed'))
+      ));
+
+    let totalEarnings = 0;
+    let totalRefunds = 0;
+    let onHoldAmount = 0;
+
+    for (const txn of completedTxns) {
+      const net = Number(txn.netAmount) || 0;
+      if (txn.type === 'session_payment' || txn.type === 'bonus') {
+        totalEarnings += net;
+      } else if (txn.type === 'refund') {
+        totalRefunds += Math.abs(net);
+      }
+    }
+
+    for (const txn of pendingTxns) {
+      const net = Number(txn.netAmount) || 0;
+      if (txn.type === 'session_payment') {
+        onHoldAmount += net;
+      }
+    }
+
+    let totalPayouts = 0;
+    for (const p of allPayouts) {
+      totalPayouts += Number(p.amount) || 0;
+    }
+
+    const availableBalance = Math.max(0, totalEarnings - totalRefunds - totalPayouts);
+
+    const [lastPayout] = await this.db
+      .select()
+      .from(payouts)
+      .where(eq(payouts.organizationId, orgProfileId))
+      .orderBy(desc(payouts.createdAt))
+      .limit(1);
+
+    return {
+      availableBalance,
+      onHoldAmount,
+      totalEarnings: totalEarnings - totalRefunds,
+      lastWithdrawal: lastPayout ? lastPayout.createdAt.toISOString().slice(0, 10) : 'N/A',
+      bankAccount: orgProfile.bankDetails || null,
+    };
+  }
+
+  async findOrganizationTransactions(organizationId: string, page: number, limit: number) {
+    let orgProfile = await this.db
+      .select()
+      .from(organizationProfile)
+      .where(or(
+        eq(organizationProfile.id, organizationId),
+        eq(organizationProfile.userId, organizationId)
+      ))
+      .limit(1)
+      .then((res: any[]) => res[0] || null);
+
+    if (!orgProfile) {
+      return { transactions: [], pagination: { page, limit, total: 0, totalPages: 0 } };
+    }
+
+    const offset = (page - 1) * limit;
+
+    const txns = await this.db
+      .select({
+        id: transactions.id,
+        amount: transactions.amount,
+        commission: transactions.commission,
+        netAmount: transactions.netAmount,
+        status: transactions.status,
+        type: transactions.type,
+        description: transactions.description,
+        createdAt: transactions.createdAt,
+        bookingId: transactions.bookingId,
+        service: bookings.service,
+        clientName: client.name,
+      })
+      .from(transactions)
+      .leftJoin(bookings, eq(transactions.bookingId, bookings.id))
+      .leftJoin(client, eq(bookings.clientId, client.id))
+      .where(eq(transactions.organizationId, orgProfile.id))
+      .orderBy(desc(transactions.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [countResult] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(transactions)
+      .where(eq(transactions.organizationId, orgProfile.id));
+
+    const total = Number(countResult?.count) || 0;
+
+    return {
+      transactions: txns,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      }
+    };
+  }
+
+  async findOrganizationPayouts(organizationId: string, page: number, limit: number) {
+    let orgProfile = await this.db
+      .select()
+      .from(organizationProfile)
+      .where(or(
+        eq(organizationProfile.id, organizationId),
+        eq(organizationProfile.userId, organizationId)
+      ))
+      .limit(1)
+      .then((res: any[]) => res[0] || null);
+
+    if (!orgProfile) {
+      return { payouts: [], pagination: { page, limit, total: 0, totalPages: 0 } };
+    }
+
+    const offset = (page - 1) * limit;
+
+    const pList = await this.db
+      .select()
+      .from(payouts)
+      .where(eq(payouts.organizationId, orgProfile.id))
+      .orderBy(desc(payouts.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [countResult] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(payouts)
+      .where(eq(payouts.organizationId, orgProfile.id));
+
+    const total = Number(countResult?.count) || 0;
+
+    return {
+      payouts: pList.map(p => ({
+        id: p.id,
+        amount: Number(p.amount),
+        status: p.status,
+        method: p.method,
+        bankAccount: p.bankAccount,
+        transactionId: p.transactionId,
+        failureReason: p.failureReason,
+        processedAt: p.processedAt,
+        createdAt: p.createdAt,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      }
+    };
+  }
+
+  async createOrganizationPayout(organizationId: string, amount: number, status: string = 'processing', transactionId?: string) {
+    let orgProfile = await this.db
+      .select()
+      .from(organizationProfile)
+      .where(or(
+        eq(organizationProfile.id, organizationId),
+        eq(organizationProfile.userId, organizationId)
+      ))
+      .limit(1)
+      .then((res: any[]) => res[0] || null);
+
+    if (!orgProfile) {
+      throw new Error('Organization profile not found');
+    }
+
+    const summary = await this.findOrganizationWalletSummary(orgProfile.id);
+    if (amount > summary.availableBalance) {
+      throw new Error('Insufficient available balance for withdrawal');
+    }
+
+    const bankAccountMasked = orgProfile.bankDetails?.accountNumber 
+      ? '****' + orgProfile.bankDetails.accountNumber.slice(-4)
+      : 'N/A';
+
+    const [insertedPayout] = await this.db
+      .insert(payouts)
+      .values({
+        organizationId: orgProfile.id,
+        amount: String(amount),
+        status: status,
+        method: status === 'completed' ? 'stripe_connect' : 'bank_transfer',
+        bankAccount: bankAccountMasked,
+        transactionId: transactionId || null,
+        createdAt: new Date(),
+        processedAt: status === 'completed' ? new Date() : null,
+      })
+      .returning();
+
+    await this.db
+      .insert(transactions)
+      .values({
+        organizationId: orgProfile.id,
+        amount: String(amount),
+        commission: '0.00',
+        netAmount: String(-amount),
+        status: 'completed',
+        type: 'payout',
+        description: status === 'completed' 
+          ? `Instant Stripe Transfer (${orgProfile.stripeConnectAccountId})`
+          : `Withdrawal to bank account (${bankAccountMasked})`,
+        createdAt: new Date(),
+        completedAt: new Date(),
+      });
+
+    return insertedPayout || null;
   }
 
   // Notification related queries

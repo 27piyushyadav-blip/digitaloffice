@@ -809,6 +809,55 @@ export class OrganizationPanelController {
   ) {
     return this.organizationPanelService.getOrganizationRequestLogs(organizationId);
   }
+
+  // Wallet APIs
+  @Get('/wallet/summary')
+  async getWalletSummary(@GetCurrentUserId() organizationId: string) {
+    return this.organizationPanelService.getWalletSummary(organizationId);
+  }
+
+  @Get('/wallet/transactions')
+  async getTransactions(
+    @GetCurrentUserId() organizationId: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.organizationPanelService.getTransactions(organizationId, page, limit);
+  }
+
+  @Get('/wallet/payouts')
+  async getPayouts(
+    @GetCurrentUserId() organizationId: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.organizationPanelService.getPayouts(organizationId, page, limit);
+  }
+
+  @Post('/wallet/withdraw')
+  async withdrawFunds(
+    @GetCurrentUserId() organizationId: string,
+    @Body() body: { amount: number },
+  ) {
+    return this.organizationPanelService.withdrawFunds(organizationId, body.amount);
+  }
+
+  @Post('/wallet/stripe-connect/onboard')
+  async getStripeConnectOnboardUrl(
+    @GetCurrentUserId() organizationId: string,
+    @Body() body: { returnUrl: string; refreshUrl: string },
+  ) {
+    return this.organizationPanelService.getStripeConnectOnboardUrl(
+      organizationId,
+      body.returnUrl,
+      body.refreshUrl,
+    );
+  }
+
+  @Get('/wallet/stripe-connect/status')
+  async getStripeConnectStatus(@GetCurrentUserId() organizationId: string) {
+    return this.organizationPanelService.getStripeConnectStatus(organizationId);
+  }
 }
 
 // Trigger reload after database package build (v2)

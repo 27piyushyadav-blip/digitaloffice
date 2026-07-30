@@ -161,5 +161,148 @@ export class PaymentsService {
       total: 2000,
     };
   }
+
+  // Create Stripe Express Connected Account for organization
+  async createExpressAccount(email: string) {
+    try {
+      if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.startsWith('pk_') || process.env.STRIPE_SECRET_KEY === 'pk_live_51TnWxJRtWyTHe4oWlZxhSZEdAW3rbgItUZ8HkwrVywI6T2EOT5YjIsLTx0RLN4qlIXDiOzhwvnewOEjf3IxHTJHW00mpmnyhGk') {
+        const mockAccountId = 'acct_mock_' + Math.random().toString(36).substring(2, 10);
+        return {
+          id: mockAccountId,
+          type: 'express',
+          mocked: true,
+        };
+      }
+
+      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      const response = await fetch('https://api.stripe.com/v2/core/accounts', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${stripeKey}`,
+          'Stripe-Version': '2026-06-24.preview',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contact_email: email,
+          display_name: 'Organization Partner',
+          dashboard: 'express',
+          identity: {
+            country: 'au',
+          },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: {
+                    requested: true
+                  }
+                }
+              }
+            }
+          },
+          defaults: {
+            responsibilities: {
+              fees_collector: 'application',
+              losses_collector: 'application'
+            }
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Stripe v2 API error: ${response.statusText} - ${errorText}`);
+      }
+
+      const account: any = await response.json();
+      return {
+        id: account.id,
+        type: 'express',
+        mocked: false,
+      };
+    } catch (err: any) {
+      throw new BadRequestException('Failed to create Stripe connected account: ' + err.message);
+    }
+  }
+
+  // Create Stripe Account Link for onboarding redirection
+  async createAccountLink(accountId: string, returnUrl: string, refreshUrl: string) {
+    try {
+      if (accountId.startsWith('acct_mock_')) {
+        return {
+          url: returnUrl + '?status=success&mock=true',
+        };
+      }
+
+      const accountLink = await this.stripe.accountLinks.create({
+        account: accountId,
+        refresh_url: refreshUrl,
+        return_url: returnUrl,
+        type: 'account_onboarding',
+      });
+
+      return {
+        url: accountLink.url,
+      };
+    } catch (err: any) {
+      throw new BadRequestException('Failed to create Stripe account link: ' + err.message);
+    }
+  }
+
+  // Retrieve Connected Account details
+  async retrieveConnectedAccount(accountId: string) {
+    try {
+      if (accountId.startsWith('acct_mock_')) {
+        return {
+          id: accountId,
+          details_submitted: true,
+          payouts_enabled: true,
+          mocked: true,
+        };
+      }
+
+      const account = await this.stripe.accounts.retrieve(accountId);
+      return {
+        id: account.id,
+        details_submitted: account.details_submitted,
+        payouts_enabled: account.payouts_enabled,
+        mocked: false,
+      };
+    } catch (err: any) {
+      throw new BadRequestException('Failed to retrieve connected account: ' + err.message);
+    }
+  }
+
+  // Transfer funds from platform account to Connected Account
+  async createStripeTransfer(amount: number, destinationAccountId: string, currency: string = 'aud') {
+    try {
+      if (destinationAccountId.startsWith('acct_mock_')) {
+        return {
+          id: 'tr_mock_' + Math.random().toString(36).substring(2, 10),
+          amount: amount,
+          destination: destinationAccountId,
+          status: 'succeeded',
+          mocked: true,
+        };
+      }
+
+      const amountInCents = Math.round(amount * 100);
+      const transfer = await this.stripe.transfers.create({
+        amount: amountInCents,
+        currency: currency.toLowerCase(),
+        destination: destinationAccountId,
+      });
+
+      return {
+        id: transfer.id,
+        amount: transfer.amount,
+        destination: transfer.destination,
+        status: 'succeeded',
+        mocked: false,
+      };
+    } catch (err: any) {
+      throw new BadRequestException('Failed to execute Stripe Connect transfer: ' + err.message);
+    }
+  }
 }
 

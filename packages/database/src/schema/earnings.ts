@@ -1,8 +1,10 @@
 import { pgTable, uuid, text, decimal, timestamp, boolean } from "drizzle-orm/pg-core";
+import { organizationProfile } from "./organizations";
 
 export const transactions = pgTable("transactions", {
   id: uuid("id").primaryKey().defaultRandom(),
-  expertId: uuid("expert_id").notNull(),
+  expertId: uuid("expert_id"),
+  organizationId: uuid("organization_id").references(() => organizationProfile.id, { onDelete: "cascade" }),
   bookingId: uuid("booking_id"),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   commission: decimal("commission", { precision: 10, scale: 2 }).notNull(), // Platform fee
@@ -17,7 +19,8 @@ export const transactions = pgTable("transactions", {
 
 export const payouts = pgTable("payouts", {
   id: uuid("id").primaryKey().defaultRandom(),
-  expertId: uuid("expert_id").notNull(),
+  expertId: uuid("expert_id"),
+  organizationId: uuid("organization_id").references(() => organizationProfile.id, { onDelete: "cascade" }),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   status: text("status").default("processing"), // processing, completed, failed
   method: text("method").default("bank_transfer"), // bank_transfer, paypal, etc.
