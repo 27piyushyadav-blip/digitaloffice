@@ -2110,8 +2110,29 @@ const organizationProfileId = orgProfile[0].id;
         .where(eq(organizationProfile.id, orgProfile.id));
     }
 
-    const accountLink = await this.paymentsService.createAccountLink(accountId, returnUrl, refreshUrl);
-    return { url: accountLink.url };
+    try {
+      const accountLink = await this.paymentsService.createAccountLink(accountId, returnUrl, refreshUrl);
+      return { url: accountLink.url };
+    } catch (err: any) {
+      // If the account ID does not exist or is not connected to this platform, clear it and create a new one.
+      const msg = err.message || '';
+      if (msg.includes('not connected') || msg.includes('does not exist') || msg.includes('No such account') || msg.includes('invalid')) {
+        const account = await this.paymentsService.createExpressAccount(orgProfile.officialEmail || 'org@example.com');
+        accountId = account.id;
+
+        await this.databaseService.db
+          .update(organizationProfile)
+          .set({ 
+            stripeConnectAccountId: accountId,
+            stripeConnectOnboarded: false
+          })
+          .where(eq(organizationProfile.id, orgProfile.id));
+
+        const accountLink = await this.paymentsService.createAccountLink(accountId, returnUrl, refreshUrl);
+        return { url: accountLink.url };
+      }
+      throw err;
+    }
   }
 
   async getStripeConnectStatus(organizationId: string) {
@@ -2133,24 +2154,45 @@ const organizationProfileId = orgProfile[0].id;
       return { onboarded: false, payoutsEnabled: false, detailsSubmitted: false, accountId: null };
     }
 
-    const accountDetails = await this.paymentsService.retrieveConnectedAccount(orgProfile.stripeConnectAccountId);
-    const payoutsEnabled = !!accountDetails.payouts_enabled;
-    const detailsSubmitted = !!accountDetails.details_submitted;
-    const onboarded = payoutsEnabled && detailsSubmitted;
+    try {
+      const accountDetails = await this.paymentsService.retrieveConnectedAccount(orgProfile.stripeConnectAccountId);
+      const payoutsEnabled = !!accountDetails.payouts_enabled;
+      const detailsSubmitted = !!accountDetails.details_submitted;
+      const onboarded = payoutsEnabled && detailsSubmitted;
 
-    if (onboarded && !orgProfile.stripeConnectOnboarded) {
-      await this.databaseService.db
-        .update(organizationProfile)
-        .set({ stripeConnectOnboarded: true })
-        .where(eq(organizationProfile.id, orgProfile.id));
+      if (onboarded && !orgProfile.stripeConnectOnboarded) {
+        await this.databaseService.db
+          .update(organizationProfile)
+          .set({ stripeConnectOnboarded: true })
+          .where(eq(organizationProfile.id, orgProfile.id));
+      }
+
+      return {
+        onboarded,
+        payoutsEnabled,
+        detailsSubmitted,
+        accountId: orgProfile.stripeConnectAccountId,
+      };
+    } catch (err: any) {
+      const msg = err.message || '';
+      if (msg.includes('not connected') || msg.includes('does not exist') || msg.includes('No such account') || msg.includes('invalid')) {
+        await this.databaseService.db
+          .update(organizationProfile)
+          .set({ 
+            stripeConnectAccountId: null,
+            stripeConnectOnboarded: false
+          })
+          .where(eq(organizationProfile.id, orgProfile.id));
+
+        return {
+          onboarded: false,
+          payoutsEnabled: false,
+          detailsSubmitted: false,
+          accountId: null,
+        };
+      }
+      throw err;
     }
-
-    return {
-      onboarded,
-      payoutsEnabled,
-      detailsSubmitted,
-      accountId: orgProfile.stripeConnectAccountId,
-    };
   }
 }
 
