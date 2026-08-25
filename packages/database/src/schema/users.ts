@@ -41,7 +41,7 @@ export const clientOrganizationPoints = pgTable(
       .references(() => client.id, { onDelete: "cascade" }),
     organizationId: uuid("organization_id")
       .notNull()
-      .references(() => organizationProfile.id, { onDelete: "cascade" }),
+      .references(() => organisation.id, { onDelete: "cascade" }),
     points: integer("points").default(0).notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -55,9 +55,9 @@ export const clientOrganizationPointsRelations = relations(clientOrganizationPoi
     fields: [clientOrganizationPoints.clientId],
     references: [client.id],
   }),
-  organization: one(organizationProfile, {
+  organization: one(organisation, {
     fields: [clientOrganizationPoints.organizationId],
-    references: [organizationProfile.id],
+    references: [organisation.id],
   }),
 }));
 

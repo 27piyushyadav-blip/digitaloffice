@@ -156,6 +156,8 @@ export class DirectoryService {
         serviceCount: services.length,
         showCategories: org.showCategories || false,
         defaultLayout: this.normalizeLayout(org.defaultLayout),
+        loyaltyPointsEnabled: org.loyaltyPointsEnabled || false,
+        loyaltyPointsAwarded: org.loyaltyPointsAwarded || 20,
     };
   }
 
