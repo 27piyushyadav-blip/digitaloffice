@@ -27,3 +27,39 @@ export const client = pgTable("client", getColumns());
 export const expert = pgTable("expert", getColumns());
 export const organisation = pgTable("organisation", getColumns());
 export const admin = pgTable("admin", getColumns());
+
+import { integer } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
+import { organizationProfile } from "./organizations";
+
+export const clientOrganizationPoints = pgTable(
+  "client_organization_points",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => client.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizationProfile.id, { onDelete: "cascade" }),
+    points: integer("points").default(0).notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  }
+);
+
+export const clientOrganizationPointsRelations = relations(clientOrganizationPoints, ({ one }) => ({
+  client: one(client, {
+    fields: [clientOrganizationPoints.clientId],
+    references: [client.id],
+  }),
+  organization: one(organizationProfile, {
+    fields: [clientOrganizationPoints.organizationId],
+    references: [organizationProfile.id],
+  }),
+}));
+
+export type ClientOrganizationPoints = typeof clientOrganizationPoints.$inferSelect;
+export type NewClientOrganizationPoints = typeof clientOrganizationPoints.$inferInsert;

@@ -82,4 +82,13 @@ export class UsersController {
   async getDashboard(@GetCurrentUserId() userId: string) {
     return this.usersService.getDashboard(userId);
   }
+
+  // Get client loyalty points for a specific organization
+  @Get('/loyalty-points/:orgId')
+  async getLoyaltyPoints(
+    @GetCurrentUserId() userId: string,
+    @Param('orgId') orgId: string,
+  ) {
+    return this.usersService.getLoyaltyPoints(userId, orgId);
+  }
 }

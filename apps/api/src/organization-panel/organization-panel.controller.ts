@@ -858,6 +858,31 @@ export class OrganizationPanelController {
   async getStripeConnectStatus(@GetCurrentUserId() organizationId: string) {
     return this.organizationPanelService.getStripeConnectStatus(organizationId);
   }
+
+  @Patch('/services/bulk-prices')
+  async bulkUpdateServicePrices(
+    @GetCurrentUserId() organizationId: string,
+    @Body() body: { updates: Array<{ serviceId: string; newPrice: string; previousPrice: string; itemName: string; changeType: string; changePercentage?: string }> },
+  ) {
+    return this.organizationPanelService.bulkUpdateServicePrices(organizationId, body);
+  }
+
+  @Put('/products/prices')
+  async updateProductPrices(
+    @GetCurrentUserId() organizationId: string,
+    @Body() body: { products: any[]; history: Array<{ itemName: string; previousPrice: string; newPrice: string; changeType: string; changePercentage?: string }> },
+  ) {
+    return this.organizationPanelService.updateProductPrices(organizationId, body);
+  }
+
+  @Get('/price-history')
+  async getPriceChangeHistory(
+    @GetCurrentUserId() organizationId: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.organizationPanelService.getPriceChangeHistory(organizationId, Number(page) || 1, Number(limit) || 50);
+  }
 }
 
 // Trigger reload after database package build (v2)

@@ -106,4 +106,12 @@ export class UsersService {
       recentActivity: [],
     };
   }
+
+  async getLoyaltyPoints(userId: string, orgId: string) {
+    const points = await this.databaseService.getClientOrganizationPoints(userId, orgId);
+    return {
+      status: 'success',
+      points: points,
+    };
+  }
 }

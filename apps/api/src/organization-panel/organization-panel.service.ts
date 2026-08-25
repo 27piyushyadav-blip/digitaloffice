@@ -173,6 +173,8 @@ export class OrganizationPanelService {
       features: profileData.features !== undefined ? profileData.features : (existingProfile as any).features,
       showCategories: profileData.showCategories !== undefined ? profileData.showCategories : (existingProfile as any).showCategories,
       invoiceCustomization: profileData.invoiceCustomization !== undefined ? profileData.invoiceCustomization : (existingProfile as any).invoiceCustomization,
+      loyaltyPointsEnabled: profileData.loyaltyPointsEnabled !== undefined ? profileData.loyaltyPointsEnabled : (existingProfile as any).loyaltyPointsEnabled,
+      loyaltyPointsAwarded: profileData.loyaltyPointsAwarded !== undefined ? Number(profileData.loyaltyPointsAwarded) : ((existingProfile as any).loyaltyPointsAwarded ?? 20),
     });
 
     return {
@@ -2193,6 +2195,66 @@ const organizationProfileId = orgProfile[0].id;
       }
       throw err;
     }
+  }
+
+  async bulkUpdateServicePrices(organizationId: string, body: { updates: Array<{ serviceId: string; newPrice: string; previousPrice: string; itemName: string; changeType: string; changePercentage?: string }> }) {
+    if (!body?.updates || !Array.isArray(body.updates)) {
+      throw new BadRequestException('Updates must be a non-empty array');
+    }
+
+    const updatedServices = await this.databaseService.bulkUpdateServicePrices(organizationId, body.updates);
+    if (!updatedServices) {
+      throw new BadRequestException('Failed to update service prices');
+    }
+
+    // Insert history entries
+    const historyEntries = body.updates.map((update) => ({
+      itemType: 'service' as const,
+      itemId: update.serviceId,
+      itemName: update.itemName,
+      previousPrice: update.previousPrice,
+      newPrice: update.newPrice,
+      changeType: update.changeType,
+      changePercentage: update.changePercentage || null,
+      changedBy: 'Admin',
+    }));
+
+    await this.databaseService.insertPriceChangeHistory(organizationId, historyEntries);
+
+    return { message: 'Service prices updated successfully', services: updatedServices };
+  }
+
+  async updateProductPrices(organizationId: string, body: { products: any[]; history: Array<{ itemName: string; previousPrice: string; newPrice: string; changeType: string; changePercentage?: string }> }) {
+    if (!body?.products || !Array.isArray(body.products)) {
+      throw new BadRequestException('Products must be an array');
+    }
+
+    const updatedProfile = await this.databaseService.updateProductPrices(organizationId, body.products);
+    if (!updatedProfile) {
+      throw new BadRequestException('Failed to update product prices');
+    }
+
+    // Insert history entries if any
+    if (body.history && Array.isArray(body.history) && body.history.length > 0) {
+      const historyEntries = body.history.map((h) => ({
+        itemType: 'product' as const,
+        itemId: null,
+        itemName: h.itemName,
+        previousPrice: h.previousPrice,
+        newPrice: h.newPrice,
+        changeType: h.changeType,
+        changePercentage: h.changePercentage || null,
+        changedBy: 'Admin',
+      }));
+
+      await this.databaseService.insertPriceChangeHistory(organizationId, historyEntries);
+    }
+
+    return { message: 'Product prices updated successfully', products: updatedProfile.products };
+  }
+
+  async getPriceChangeHistory(organizationId: string, page?: number, limit?: number) {
+    return this.databaseService.getPriceChangeHistory(organizationId, page, limit);
   }
 }
 

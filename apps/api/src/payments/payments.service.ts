@@ -174,55 +174,83 @@ export class PaymentsService {
         };
       }
 
-      const stripeKey = process.env.STRIPE_SECRET_KEY;
-      const response = await fetch('https://api.stripe.com/v2/core/accounts', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${stripeKey}`,
-          'Stripe-Version': '2026-06-24.preview',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contact_email: email,
-          display_name: 'Organization Partner',
-          dashboard: 'express',
-          identity: {
-            country: 'au',
+      try {
+        const stripeKey = process.env.STRIPE_SECRET_KEY;
+        const response = await fetch('https://api.stripe.com/v2/core/accounts', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${stripeKey}`,
+            'Stripe-Version': '2026-06-24.preview',
+            'Content-Type': 'application/json',
           },
-          configuration: {
-            recipient: {
-              capabilities: {
-                stripe_balance: {
-                  stripe_transfers: {
-                    requested: true
+          body: JSON.stringify({
+            contact_email: email,
+            display_name: 'Organization Partner',
+            dashboard: 'express',
+            identity: {
+              country: 'au',
+            },
+            configuration: {
+              recipient: {
+                capabilities: {
+                  stripe_balance: {
+                    stripe_transfers: {
+                      requested: true
+                    }
                   }
                 }
               }
+            },
+            defaults: {
+              responsibilities: {
+                fees_collector: 'application',
+                losses_collector: 'application'
+              }
             }
-          },
-          defaults: {
-            responsibilities: {
-              fees_collector: 'application',
-              losses_collector: 'application'
-            }
-          }
-        }),
-      });
+          }),
+        });
 
-      if (!response.ok) {
+        if (response.ok) {
+          const account: any = await response.json();
+          return {
+            id: account.id,
+            type: 'express',
+            mocked: false,
+          };
+        }
+
         const errorText = await response.text();
+        if (errorText.includes('accounts_v2_access_blocked') || errorText.includes('Accounts v2 is not enabled')) {
+          return await this.createExpressAccountV1(email);
+        }
         throw new Error(`Stripe v2 API error: ${response.statusText} - ${errorText}`);
+      } catch (err: any) {
+        const msg = err.message || '';
+        if (msg.includes('accounts_v2_access_blocked') || msg.includes('Accounts v2 is not enabled')) {
+          return await this.createExpressAccountV1(email);
+        }
+        throw err;
       }
-
-      const account: any = await response.json();
-      return {
-        id: account.id,
-        type: 'express',
-        mocked: false,
-      };
     } catch (err: any) {
       throw new BadRequestException('Failed to create Stripe connected account: ' + err.message);
     }
+  }
+
+  // Fallback V1 Creation
+  private async createExpressAccountV1(email: string) {
+    const account = await this.stripe.accounts.create({
+      type: 'express',
+      email: email,
+      capabilities: {
+        transfers: { requested: true },
+      },
+    });
+
+    return {
+      id: account.id,
+      type: account.type,
+      mocked: false,
+    };
   }
 
   // Create Stripe Account Link for onboarding redirection

@@ -31,6 +31,7 @@ export class BookingsController {
       duration: number;
       amount: number;
       notes?: string;
+      pointsToRedeem?: number;
     },
   ) {
     return this.bookingsService.createBooking(clientId, bookingData);
@@ -57,8 +58,9 @@ export class BookingsController {
   @Post('public/:bookingId/payment-intent')
   async createPublicPaymentIntent(
     @Param('bookingId') bookingId: string,
+    @Body() body: { pointsToRedeem?: number },
   ) {
-    return this.bookingsService.createPublicPaymentIntent(bookingId);
+    return this.bookingsService.createPublicPaymentIntent(bookingId, body?.pointsToRedeem);
   }
 
   @Public()

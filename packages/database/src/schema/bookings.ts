@@ -21,6 +21,9 @@ export const bookings = pgTable("bookings", {
   rejectedAt: timestamp("rejected_at"),
   cancelledAt: timestamp("cancelled_at"),
   completedAt: timestamp("completed_at"),
+  pointsEarned: integer("points_earned").default(0).notNull(),
+  pointsRedeemed: integer("points_redeemed").default(0).notNull(),
+  pointsDiscountAmount: decimal("points_discount_amount", { precision: 10, scale: 4 }).default("0.0000").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
 });

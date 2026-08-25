@@ -153,6 +153,35 @@ export const offerItemsRelations = relations(offerItems, ({ one }) => ({
   }),
 }));
 
+export const priceChangeHistory = pgTable(
+  "price_change_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizationProfile.id, { onDelete: "cascade" }),
+    itemType: text("item_type").$type<"service" | "product">().notNull(),
+    itemId: uuid("item_id"), // Null for products as they are stored inside profile JSON
+    itemName: text("item_name").notNull(),
+    previousPrice: decimal("previous_price", { precision: 10, scale: 2 }).notNull(),
+    newPrice: decimal("new_price", { precision: 10, scale: 2 }).notNull(),
+    changeType: text("change_type").$type<"increase" | "decrease" | "manual" | "bulk">().notNull(),
+    changePercentage: decimal("change_percentage", { precision: 10, scale: 2 }),
+    changedBy: text("changed_by").default("Admin").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    orgIdx: index("idx_price_history_org").on(table.organizationId),
+  })
+);
+
+export const priceChangeHistoryRelations = relations(priceChangeHistory, ({ one }) => ({
+  organization: one(organizationProfile, {
+    fields: [priceChangeHistory.organizationId],
+    references: [organizationProfile.id],
+  }),
+}));
+
 export type OrganizationServiceCategory = typeof organizationServiceCategories.$inferSelect;
 export type NewOrganizationServiceCategory = typeof organizationServiceCategories.$inferInsert;
 
@@ -164,4 +193,8 @@ export type NewOffer = typeof offers.$inferInsert;
 
 export type OfferItem = typeof offerItems.$inferSelect;
 export type NewOfferItem = typeof offerItems.$inferInsert;
+
+export type PriceChangeHistory = typeof priceChangeHistory.$inferSelect;
+export type NewPriceChangeHistory = typeof priceChangeHistory.$inferInsert;
+
 

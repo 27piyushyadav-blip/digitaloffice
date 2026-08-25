@@ -21,8 +21,9 @@ export class BookingsService {
     duration: number;
     amount: number;
     notes?: string;
+    pointsToRedeem?: number;
   }) {
-    const { expertId, organizationId, service, consultationType, scheduledDate, duration, amount, notes } = bookingData;
+    const { expertId, organizationId, service, consultationType, scheduledDate, duration, amount, notes, pointsToRedeem } = bookingData;
 
     if (!expertId) {
       throw new BadRequestException('Expert ID is required');
@@ -32,6 +33,27 @@ export class BookingsService {
     }
     if (!scheduledDate) {
       throw new BadRequestException('Scheduled date is required');
+    }
+
+    // 1. Calculate discount if points are redeemed
+    let finalAmount = amount;
+    let actualPointsToRedeem = 0;
+    let pointsDiscountAmount = 0;
+
+    if (pointsToRedeem && pointsToRedeem > 0 && organizationId) {
+      // Fetch org settings
+      const org = await this.databaseService.findOrganizationById(organizationId);
+      if (org && org.loyaltyPointsEnabled) {
+        const clientPoints = await this.databaseService.getClientOrganizationPoints(clientId, organizationId);
+        const requestedPoints = Math.min(pointsToRedeem, clientPoints);
+        
+        // 1 point = 0.20 cents ($0.002)
+        const calculatedDiscount = requestedPoints * 0.002;
+        pointsDiscountAmount = Math.min(amount, calculatedDiscount);
+        actualPointsToRedeem = Math.ceil(pointsDiscountAmount / 0.002);
+        
+        finalAmount = Math.max(0, amount - pointsDiscountAmount);
+      }
     }
 
     // Parse the scheduled date string to Date object
@@ -46,7 +68,10 @@ export class BookingsService {
       consultationType: consultationType || 'online',
       scheduledDate: scheduledDateTime,
       duration,
-      amount: String(amount),
+      amount: String(finalAmount),
+      pointsRedeemed: actualPointsToRedeem,
+      pointsDiscountAmount: String(pointsDiscountAmount),
+      notes: notes || null,
     });
 
     if (booking && booking.paymentStatus === 'paid') {
@@ -205,7 +230,7 @@ export class BookingsService {
     };
   }
 
-  async createPublicPaymentIntent(bookingId: string) {
+  async createPublicPaymentIntent(bookingId: string, pointsToRedeem?: number) {
     const booking = await this.databaseService.findBookingById(bookingId);
     if (!booking) {
       throw new NotFoundException('Booking not found');
@@ -225,7 +250,34 @@ export class BookingsService {
       throw new BadRequestException('This booking is not eligible for public payment');
     }
 
-    const subtotal = Number(booking.amount);
+    let subtotal = Number(booking.amount);
+
+    // Apply loyalty points if requested
+    if (pointsToRedeem && pointsToRedeem > 0 && booking.organizationId) {
+      const org = await this.databaseService.findOrganizationById(booking.organizationId);
+      if (org && org.loyaltyPointsEnabled) {
+        const clientPoints = await this.databaseService.getClientOrganizationPoints(booking.clientId, booking.organizationId);
+        const requestedPoints = Math.min(pointsToRedeem, clientPoints);
+        
+        // 1 point = 0.20 cents ($0.002)
+        const calculatedDiscount = requestedPoints * 0.002;
+        const pointsDiscountAmount = Math.min(subtotal, calculatedDiscount);
+        const actualPointsRedeemed = Math.ceil(pointsDiscountAmount / 0.002);
+        
+        subtotal = Math.max(0, subtotal - pointsDiscountAmount);
+
+        // Deduct points from user balance
+        await this.databaseService.updateClientOrganizationPoints(booking.clientId, booking.organizationId, -actualPointsRedeemed);
+
+        // Update booking row amount and points details
+        await this.databaseService.updateBookingPoints(bookingId, {
+          amount: String(subtotal),
+          pointsRedeemed: actualPointsRedeemed,
+          pointsDiscountAmount: String(pointsDiscountAmount),
+        });
+      }
+    }
+
     const tax = Math.round(subtotal * 0.05); // Match frontend 5% tax calculations
     const total = subtotal + tax;
 

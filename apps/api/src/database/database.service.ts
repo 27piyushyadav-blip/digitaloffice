@@ -23,6 +23,8 @@ import {
   invoices,
   transactions,
   payouts,
+  priceChangeHistory,
+  clientOrganizationPoints,
 } from '@repo/database';
 
 import { eq, and, desc, or, sql, isNull, inArray, getTableColumns } from 'drizzle-orm';
@@ -541,7 +543,23 @@ export class DatabaseService {
     status?: string;
     paymentStatus?: string;
     notes?: string;
+    pointsRedeemed?: number;
+    pointsDiscountAmount?: string;
   }) {
+    // 1. Deduct points if redeemed
+    if (data.pointsRedeemed && data.pointsRedeemed > 0 && data.organizationId) {
+      await this.updateClientOrganizationPoints(data.clientId, data.organizationId, -data.pointsRedeemed);
+    }
+
+    // 2. Determine points earned
+    let pointsEarned = 0;
+    if (data.organizationId && (data.paymentStatus === 'paid' || !data.paymentStatus)) {
+      const org = await this.findOrganizationById(data.organizationId);
+      if (org && org.loyaltyPointsEnabled) {
+        pointsEarned = org.loyaltyPointsAwarded ?? 20;
+      }
+    }
+
     const [inserted] = await this.db
       .insert(bookings)
       .values({
@@ -556,8 +574,16 @@ export class DatabaseService {
         status: data.status || 'confirmed',
         paymentStatus: data.paymentStatus || 'paid',
         notes: data.notes || null,
+        pointsRedeemed: data.pointsRedeemed || 0,
+        pointsDiscountAmount: data.pointsDiscountAmount || '0.0000',
+        pointsEarned: pointsEarned,
       })
       .returning();
+    
+    // 3. Credit points if paid
+    if (inserted && inserted.paymentStatus === 'paid' && pointsEarned > 0 && data.organizationId) {
+      await this.updateClientOrganizationPoints(data.clientId, data.organizationId, pointsEarned);
+    }
     
     if (inserted && inserted.paymentStatus === 'paid') {
       try {
@@ -950,6 +976,8 @@ export class DatabaseService {
           zipCode: organizationProfile.zipCode,
           logo: organizationProfile.logo,
           invoiceCustomization: organizationProfile.invoiceCustomization,
+          loyaltyPointsEnabled: organizationProfile.loyaltyPointsEnabled,
+          loyaltyPointsAwarded: organizationProfile.loyaltyPointsAwarded,
         },
       })
       .from(bookings)
@@ -984,6 +1012,21 @@ export class DatabaseService {
     
     if (updated && updateData.paymentStatus === 'paid') {
       try {
+        // Award points if eligible and not already awarded
+        if (updated.organizationId && updated.pointsEarned === 0) {
+          const org = await this.findOrganizationById(updated.organizationId);
+          if (org && org.loyaltyPointsEnabled) {
+            const pointsToAward = org.loyaltyPointsAwarded ?? 20;
+            // Update booking pointsEarned
+            await this.db
+              .update(bookings)
+              .set({ pointsEarned: pointsToAward })
+              .where(eq(bookings.id, bookingId));
+            // Credit points
+            await this.updateClientOrganizationPoints(updated.clientId, updated.organizationId, pointsToAward);
+          }
+        }
+
         if (updated.organizationId) {
           await this.createWalletTransaction(updated.id);
         }
@@ -1027,6 +1070,25 @@ export class DatabaseService {
       }
     }
 
+    if (updated && (status === 'cancelled' || status === 'rejected')) {
+      try {
+        if (updated.organizationId) {
+          if (updated.pointsRedeemed > 0) {
+            await this.updateClientOrganizationPoints(updated.clientId, updated.organizationId, updated.pointsRedeemed);
+          }
+          if (updated.pointsEarned > 0) {
+            await this.updateClientOrganizationPoints(updated.clientId, updated.organizationId, -updated.pointsEarned);
+          }
+          await this.db
+            .update(bookings)
+            .set({ pointsEarned: 0, pointsRedeemed: 0, pointsDiscountAmount: '0.0000' })
+            .where(eq(bookings.id, bookingId));
+        }
+      } catch (err) {
+        console.error('Failed to revert booking loyalty points:', err);
+      }
+    }
+ 
     return updated || null;
   }
 
@@ -2300,5 +2362,142 @@ export class DatabaseService {
           .where(eq(messages.id, message.id));
       }
     }
+  }
+
+  async bulkUpdateServicePrices(organizationUserId: string, updates: Array<{ serviceId: string; newPrice: string }>) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+
+    const results = [];
+    for (const update of updates) {
+      const [updated] = await this.db
+        .update(organizationServices)
+        .set({
+          basePrice: update.newPrice,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(organizationServices.id, update.serviceId), eq(organizationServices.organizationId, org.id)))
+        .returning();
+      if (updated) {
+        results.push(updated);
+      }
+    }
+    return results;
+  }
+
+  async updateProductPrices(organizationUserId: string, products: any[]) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return null;
+
+    const [updated] = await this.db
+      .update(organizationProfile)
+      .set({
+        products: products,
+        updatedAt: new Date(),
+      })
+      .where(eq(organizationProfile.id, org.id))
+      .returning();
+
+    return updated || null;
+  }
+
+  async insertPriceChangeHistory(organizationUserId: string, historyEntries: any[]) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return [];
+
+    const inserted = [];
+    for (const entry of historyEntries) {
+      const [newEntry] = await this.db
+        .insert(priceChangeHistory)
+        .values({
+          organizationId: org.id,
+          itemType: entry.itemType,
+          itemId: entry.itemId || null,
+          itemName: entry.itemName,
+          previousPrice: String(entry.previousPrice),
+          newPrice: String(entry.newPrice),
+          changeType: entry.changeType,
+          changePercentage: entry.changePercentage ? String(entry.changePercentage) : null,
+          changedBy: entry.changedBy || 'Admin',
+        })
+        .returning();
+      if (newEntry) {
+        inserted.push(newEntry);
+      }
+    }
+    return inserted;
+  }
+
+  async getPriceChangeHistory(organizationUserId: string, page = 1, limit = 50) {
+    const org = await this.ensureOrganizationProfile(organizationUserId);
+    if (!org) return { history: [], total: 0 };
+
+    const offset = (page - 1) * limit;
+
+    const historyList = await this.db
+      .select()
+      .from(priceChangeHistory)
+      .where(eq(priceChangeHistory.organizationId, org.id))
+      .orderBy(desc(priceChangeHistory.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [countResult] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(priceChangeHistory)
+      .where(eq(priceChangeHistory.organizationId, org.id));
+
+    return {
+      history: historyList,
+      total: Number(countResult?.count || 0),
+    };
+  }
+
+  async getClientOrganizationPoints(clientId: string, organizationId: string) {
+    const [existing] = await this.db
+      .select()
+      .from(clientOrganizationPoints)
+      .where(and(eq(clientOrganizationPoints.clientId, clientId), eq(clientOrganizationPoints.organizationId, organizationId)))
+      .limit(1);
+
+    return existing ? existing.points : 0;
+  }
+
+  async updateClientOrganizationPoints(clientId: string, organizationId: string, pointsOffset: number) {
+    const [existing] = await this.db
+      .select()
+      .from(clientOrganizationPoints)
+      .where(and(eq(clientOrganizationPoints.clientId, clientId), eq(clientOrganizationPoints.organizationId, organizationId)))
+      .limit(1);
+
+    if (existing) {
+      const newPoints = Math.max(0, existing.points + pointsOffset);
+      const [updated] = await this.db
+        .update(clientOrganizationPoints)
+        .set({ points: newPoints, updatedAt: new Date() })
+        .where(eq(clientOrganizationPoints.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      const initialPoints = Math.max(0, pointsOffset);
+      const [inserted] = await this.db
+        .insert(clientOrganizationPoints)
+        .values({
+          clientId,
+          organizationId,
+          points: initialPoints,
+        })
+        .returning();
+      return inserted;
+    }
+  }
+
+  async updateBookingPoints(bookingId: string, data: { amount: string; pointsRedeemed: number; pointsDiscountAmount: string }) {
+    const [updated] = await this.db
+      .update(bookings)
+      .set(data)
+      .where(eq(bookings.id, bookingId))
+      .returning();
+    return updated || null;
   }
 }
